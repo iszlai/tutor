@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -17,10 +19,19 @@ func (a *API) routes() http.Handler {
 	mux.HandleFunc("GET /api/documents", a.listDocs)
 	mux.HandleFunc("POST /api/documents", a.createDoc)
 	mux.HandleFunc("GET /api/documents/{id}", a.getDoc)
+	mux.HandleFunc("DELETE /api/documents/{id}", a.deleteDoc)
 	mux.HandleFunc("POST /api/documents/{id}/threads", a.createThread)
 	mux.HandleFunc("POST /api/documents/{id}/threads/{threadId}/messages", a.replyThread)
 	mux.HandleFunc("POST /api/documents/{id}/threads/{threadId}/actions", a.threadAction)
 	return withCORS(mux)
+}
+
+func (a *API) deleteDoc(w http.ResponseWriter, r *http.Request) {
+	if err := a.store.Delete(r.PathValue("id")); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *API) health(w http.ResponseWriter, _ *http.Request) {
@@ -50,30 +61,53 @@ func (a *API) getDoc(w http.ResponseWriter, r *http.Request) {
 func (a *API) createDoc(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Question string `json:"question"`
+		Markdown string `json:"markdown"` // optional: import raw md instead of generating
+		Title    string `json:"title"`    // optional: override title when importing
 	}
 	if !decode(w, r, &in) {
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
-	defer cancel()
 
-	md, err := a.llm.Generate(ctx, docSystem, docPrompt(in.Question))
-	if err != nil {
-		writeErr(w, http.StatusBadGateway, err)
-		return
+	var md, title string
+
+	if in.Markdown != "" {
+		// Import path — no LLM call.
+		md = in.Markdown
+		title = in.Title
+		if title == "" {
+			title = titleFromMarkdown(md)
+		}
+		if title == "" {
+			title = "Untitled"
+		}
+	} else {
+		// Generate path.
+		if strings.TrimSpace(in.Question) == "" {
+			writeErr(w, http.StatusBadRequest, errors.New("question is required"))
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+		defer cancel()
+		var err error
+		md, err = a.llm.Generate(ctx, docSystem, docPrompt(in.Question))
+		if err != nil {
+			writeErr(w, http.StatusBadGateway, err)
+			return
+		}
+		title = deriveTitle(in.Question)
 	}
 
 	doc := &TutorDoc{
 		SchemaVersion: "1.0",
 		ID:            newID("doc"),
-		Title:        deriveTitle(in.Question),
-		RootQuestion: in.Question,
-		CreatedAt:    nowISO(),
-		Provider:     Provider{Name: a.llm.Name(), Model: a.llm.Model()},
-		Blocks:       parseBlocks(md),
-		Threads:      []Thread{},
-		Links:        []DocLink{},
-		Revisions:    []Revision{},
+		Title:         title,
+		RootQuestion:  in.Question,
+		CreatedAt:     nowISO(),
+		Provider:      Provider{Name: a.llm.Name(), Model: a.llm.Model()},
+		Blocks:        parseBlocks(md),
+		Threads:       []Thread{},
+		Links:         []DocLink{},
+		Revisions:     []Revision{},
 	}
 	if err := a.store.Save(doc); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)

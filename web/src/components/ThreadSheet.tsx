@@ -5,6 +5,7 @@ import { Markdown } from "./Markdown";
 const ACTIONS: { type: string; label: string }[] = [
   { type: "createLinkedPage", label: "↳ Linked page" },
   { type: "rewrite", label: "✎ Rewrite" },
+  { type: "insert", label: "( ) Insert" },
   { type: "insertSummary", label: "≡ Insert summary" },
   { type: "generateVisual", label: "◈ Visual" },
   { type: "generateExercise", label: "✓ Exercise" },

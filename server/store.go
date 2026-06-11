@@ -62,12 +62,18 @@ type DocSummary struct {
 	UpdatedAt string `json:"updatedAt"`
 }
 
+func (s *Store) Delete(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return os.RemoveAll(s.docDir(id))
+}
+
 func (s *Store) List() ([]DocSummary, error) {
 	entries, err := os.ReadDir(s.dir)
 	if err != nil {
 		return nil, err
 	}
-	var out []DocSummary
+	out := []DocSummary{}
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue

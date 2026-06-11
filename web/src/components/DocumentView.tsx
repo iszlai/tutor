@@ -30,19 +30,29 @@ export function DocumentView({
     threadsByBlock.set(t.anchor.startBlockId, list);
   }
 
-  const children = doc.links.filter((l) => l.type === "child");
+  // Child links with a sourceBlockId appear inline at that block.
+  // Others (and related links) appear in the breadcrumb.
+  const inlineLinks = new Map<string, DocLink[]>();
+  for (const l of doc.links) {
+    if (l.type === "child" && l.sourceBlockId) {
+      const list = inlineLinks.get(l.sourceBlockId) ?? [];
+      list.push(l);
+      inlineLinks.set(l.sourceBlockId, list);
+    }
+  }
+  const breadcrumbChildren = doc.links.filter((l) => l.type === "child" && !l.sourceBlockId);
   const related = doc.links.filter((l) => l.type === "related");
 
   return (
     <div>
       <h1 className="doc-title">{doc.title}</h1>
 
-      {(children.length > 0 || related.length > 0) && (
+      {(breadcrumbChildren.length > 0 || related.length > 0) && (
         <div className="breadcrumb">
           {related.map((l) => (
             <LinkChip key={l.targetDocId} link={l} prefix="↑" onNavigate={onNavigate} />
           ))}
-          {children.map((l) => (
+          {breadcrumbChildren.map((l) => (
             <LinkChip key={l.targetDocId} link={l} prefix="↳" onNavigate={onNavigate} />
           ))}
         </div>
@@ -51,6 +61,7 @@ export function DocumentView({
       <div ref={ref}>
         {doc.blocks.map((b) => {
           const threads = threadsByBlock.get(b.blockId) ?? [];
+          const blockLinks = inlineLinks.get(b.blockId) ?? [];
           return (
             <div key={b.blockId} className="block" data-block-id={b.blockId}>
               <Markdown>{b.markdown}</Markdown>
@@ -62,6 +73,16 @@ export function DocumentView({
                   title="Open discussion"
                 >
                   💬 {t.messages.filter((m) => m.role === "user").length}
+                </span>
+              ))}
+              {blockLinks.map((l) => (
+                <span
+                  key={l.targetDocId}
+                  className="inline-link-chip"
+                  onClick={() => onNavigate(l.targetDocId)}
+                  title={l.label}
+                >
+                  ↳ {l.label}
                 </span>
               ))}
             </div>

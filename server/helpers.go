@@ -38,7 +38,7 @@ func statusFor(err error) int {
 func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -46,6 +46,17 @@ func withCORS(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// titleFromMarkdown extracts the text of the first # heading, or returns "".
+func titleFromMarkdown(md string) string {
+	for _, line := range strings.Split(md, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "# ") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "# "))
+		}
+	}
+	return ""
 }
 
 // deriveTitle makes a short human title from the question/topic.

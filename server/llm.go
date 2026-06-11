@@ -36,7 +36,7 @@ func NewLLM() LLM {
 	if base := strings.TrimSpace(os.Getenv("TUTOR_LOCAL_LLM_URL")); base != "" {
 		return &localLLM{
 			baseURL: strings.TrimRight(base, "/"),
-			model:   envOr("TUTOR_LOCAL_LLM_MODEL", "gemma2:12b"),
+			model:   envOr("TUTOR_LOCAL_LLM_MODEL", "gemma3:12b"),
 			http:    &http.Client{Timeout: 120 * time.Second},
 		}
 	}
@@ -89,9 +89,9 @@ func (c *claudeLLM) Generate(ctx context.Context, system, prompt string) (string
 // TUTOR_LOCAL_LLM_URL at an Ollama, llama.cpp, or LM Studio server running a
 // local Gemma 12B model. Example (Ollama):
 //
-//	ollama pull gemma2:12b
+//	ollama pull gemma3:12b
 //	export TUTOR_LOCAL_LLM_URL=http://localhost:11434/v1
-//	export TUTOR_LOCAL_LLM_MODEL=gemma2:12b
+//	export TUTOR_LOCAL_LLM_MODEL=gemma3:12b
 type localLLM struct {
 	baseURL string
 	model   string

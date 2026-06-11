@@ -1,7 +1,11 @@
 import type { Anchor, DocSummary, TutorDoc } from "./types";
 
+// In dev (Vite proxy) BASE is empty so /api/... works unchanged.
+// In a packaged Electron build VITE_API_BASE is set to http://localhost:PORT.
+const BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "";
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api${path}`, {
+  const res = await fetch(`${BASE}/api${path}`, {
     headers: { "Content-Type": "application/json" },
     ...init,
   });
@@ -9,6 +13,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     const body = await res.json().catch(() => ({}));
     throw new Error((body as { error?: string }).error || `HTTP ${res.status}`);
   }
+  if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
 
@@ -24,6 +29,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ question }),
     }),
+
+  importDoc: (markdown: string, title?: string) =>
+    req<TutorDoc>("/documents", {
+      method: "POST",
+      body: JSON.stringify({ markdown, title: title ?? "" }),
+    }),
+
+  deleteDoc: (id: string) =>
+    req<void>(`/documents/${id}`, { method: "DELETE" }),
 
   createThread: (docId: string, anchor: Anchor, message: string) =>
     req<TutorDoc>(`/documents/${docId}/threads`, {

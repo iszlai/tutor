@@ -1,0 +1,31 @@
+{
+  "name": "tutor",
+  "version": "0.1.0",
+  "description": "AI tutor — local LLM + Electron desktop app",
+  "main": "electron/main.js",
+  "scripts": {
+    "dist": "electron-builder --mac"
+  },
+  "devDependencies": {
+    "electron": "^33.4.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "dev.tutor.app",
+    "productName": "Tutor",
+    "mac": {
+      "category": "public.app-category.education",
+      "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }]
+    },
+    "files": [
+      "electron/**/*",
+      "web/dist/**/*"
+    ],
+    "extraResources": [
+      { "from": "bin/tutor-server", "to": "tutor-server" }
+    ],
+    "directories": {
+      "output": "dist-electron"
+    }
+  }
+}

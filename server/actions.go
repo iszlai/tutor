@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"strings"
 )
 
 var (
@@ -23,6 +24,8 @@ func (a *API) runAction(ctx context.Context, docID, threadID, action string) (*T
 			return errNotFound
 		}
 		switch action {
+		case "insert":
+			return a.insertReply(doc, t)
 		case "insertSummary":
 			return a.insertSummary(ctx, doc, t)
 		case "rewrite":
@@ -35,6 +38,33 @@ func (a *API) runAction(ctx context.Context, docID, threadID, action string) (*T
 			return errBadAction
 		}
 	})
+}
+
+func (a *API) insertReply(doc *TutorDoc, t *Thread) error {
+	reply := lastAssistantMessage(t)
+	if reply == "" {
+		return errors.New("no reply to insert")
+	}
+	blk := findBlock(doc, t.Anchor.StartBlockID)
+	if blk == nil {
+		return errNotFound
+	}
+	note := " (" + strings.TrimSpace(reply) + ")"
+	// Insert right after the exact selected text; fall back to appending.
+	if idx := strings.Index(blk.Markdown, t.Anchor.ExactQuote); idx >= 0 {
+		pos := idx + len(t.Anchor.ExactQuote)
+		blk.Markdown = blk.Markdown[:pos] + note + blk.Markdown[pos:]
+	} else {
+		blk.Markdown = strings.TrimRight(blk.Markdown, " \n") + note
+	}
+	doc.Revisions = append(doc.Revisions, Revision{
+		RevisionID: newID("rev"), At: nowISO(), Kind: "blockRewrite",
+		BlockID: blk.BlockID, After: blk.Markdown, ByThreadID: t.ThreadID,
+	})
+	t.Actions = append(t.Actions, ThreadAction{
+		Type: "insert", CreatedAt: nowISO(), TargetBlock: blk.BlockID,
+	})
+	return nil
 }
 
 func (a *API) insertSummary(ctx context.Context, doc *TutorDoc, t *Thread) error {
@@ -116,7 +146,9 @@ func (a *API) generateExercise(ctx context.Context, doc *TutorDoc, t *Thread) er
 	return nil
 }
 
-// createLinkedPage spawns a child document and links it from the parent thread.
+// createLinkedPage promotes a thread's reply into a child document.
+// It uses the last assistant message as content (no LLM call) and returns
+// the child so the frontend navigates there immediately.
 func (a *API) createLinkedPage(ctx context.Context, docID, threadID string) (*TutorDoc, error) {
 	parent, err := a.store.Load(docID)
 	if err != nil {
@@ -127,28 +159,34 @@ func (a *API) createLinkedPage(ctx context.Context, docID, threadID string) (*Tu
 		return nil, errNotFound
 	}
 
-	md, err := a.llm.Generate(ctx, docSystem, linkedPagePrompt(t))
-	if err != nil {
-		return nil, err
+	// Use the last assistant reply — no new LLM call needed.
+	md := lastAssistantMessage(t)
+	if md == "" {
+		// Thread has no reply yet; generate one as a fallback.
+		md, err = a.llm.Generate(ctx, docSystem, linkedPagePrompt(t))
+		if err != nil {
+			return nil, err
+		}
 	}
+
 	child := &TutorDoc{
 		SchemaVersion: "1.0",
 		ID:            newID("doc"),
-		Title:        deriveTitle(t.Anchor.ExactQuote),
-		RootQuestion: "Linked from: " + parent.Title,
-		CreatedAt:    nowISO(),
-		Provider:     Provider{Name: a.llm.Name(), Model: a.llm.Model()},
-		Blocks:       parseBlocks(md),
-		Threads:      []Thread{},
-		Links:        []DocLink{{Type: "related", TargetDocID: parent.ID, Label: parent.Title}},
-		Revisions:    []Revision{},
+		Title:         deriveTitle(t.Anchor.ExactQuote),
+		RootQuestion:  "Linked from: " + parent.Title,
+		CreatedAt:     nowISO(),
+		Provider:      Provider{Name: a.llm.Name(), Model: a.llm.Model()},
+		Blocks:        parseBlocks(md),
+		Threads:       []Thread{},
+		Links:         []DocLink{{Type: "related", TargetDocID: parent.ID, Label: parent.Title}},
+		Revisions:     []Revision{},
 	}
 	if err := a.store.Save(child); err != nil {
 		return nil, err
 	}
 
-	// Record the link + action on the parent and return the parent.
-	return a.store.mutate(docID, func(doc *TutorDoc) error {
+	// Record the link + action on the parent.
+	_, err = a.store.mutate(docID, func(doc *TutorDoc) error {
 		doc.Links = append(doc.Links, DocLink{
 			Type: "child", TargetDocID: child.ID, Label: child.Title,
 			SourceThread: threadID, SourceBlock: t.Anchor.StartBlockID,
@@ -160,6 +198,21 @@ func (a *API) createLinkedPage(ctx context.Context, docID, threadID string) (*Tu
 		}
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Return the child — caller navigates there.
+	return child, nil
+}
+
+func lastAssistantMessage(t *Thread) string {
+	for i := len(t.Messages) - 1; i >= 0; i-- {
+		if t.Messages[i].Role == "assistant" {
+			return t.Messages[i].Text
+		}
+	}
+	return ""
 }
 
 // insertAfter places blk immediately after the block with id `afterID`

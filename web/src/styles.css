@@ -68,8 +68,11 @@ body {
   z-index: 20;
   background: rgba(255, 255, 255, 0.9);
   backdrop-filter: saturate(180%) blur(12px);
-  padding: 14px 0 12px;
+  padding: 10px 0;
   border-bottom: 1px solid var(--color-border-neutral);
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .brand {
@@ -82,6 +85,17 @@ body {
   letter-spacing: -0.02em;
 }
 
+.brand-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  color: inherit;
+}
+.brand-btn:hover .brand-dot {
+  background: var(--color-brand-accent-hover);
+}
+
 .brand-dot {
   width: 10px;
   height: 10px;
@@ -89,8 +103,14 @@ body {
   background: var(--color-brand-accent);
 }
 
+.topbar-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .provider-pill {
-  float: right;
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--color-content-tertiary);
@@ -98,7 +118,83 @@ body {
   border: 1px solid var(--color-border-neutral);
   border-radius: 999px;
   padding: 3px 10px;
-  margin-top: 2px;
+}
+
+@media (max-width: 480px) {
+  .provider-pill { display: none; }
+}
+
+/* ---- History dropdown ----------------------------------------------------- */
+
+.history-wrap {
+  position: relative;
+}
+
+.history-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  width: 300px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 14px;
+  box-shadow: var(--shadow-card);
+  padding: 8px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.history-item-row {
+  display: flex;
+  align-items: center;
+  border-radius: 10px;
+}
+.history-item-row:hover {
+  background: var(--color-surface-tint);
+}
+
+.history-item {
+  flex: 1;
+  padding: 10px 12px;
+  font-size: 14px;
+  color: var(--color-content-primary);
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.history-delete {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--color-content-tertiary);
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+  border-radius: 8px;
+  line-height: 1;
+}
+.history-delete:hover {
+  color: #a8200d;
+  background: rgba(168, 32, 13, 0.08);
+}
+
+.history-empty {
+  font-size: 13px;
+  color: var(--color-content-tertiary);
+  text-align: center;
+  padding: 12px;
+  margin: 0;
+}
+
+.history-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 59;
 }
 
 /* ---- Prompt box ----------------------------------------------------------- */
@@ -168,9 +264,59 @@ body {
   background: var(--color-surface-tint);
 }
 
+.btn-danger {
+  color: #a8200d;
+}
+.btn-danger:hover {
+  background: rgba(168, 32, 13, 0.08);
+  border-color: rgba(168, 32, 13, 0.3);
+}
+
 .btn-sm {
   font-size: 13px;
   padding: 8px 14px;
+}
+
+/* ---- Import .md ----------------------------------------------------------- */
+
+.import-toggle {
+  text-align: center;
+  margin: 2px 0 4px;
+}
+
+.import-toggle-btn {
+  background: none;
+  border: none;
+  font-size: 13px;
+  color: var(--color-content-tertiary);
+  cursor: pointer;
+  padding: 2px 6px;
+}
+.import-toggle-btn:hover {
+  color: var(--color-brand-accent);
+}
+
+.import-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.import-textarea {
+  width: 100%;
+  min-height: 220px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 12px 14px;
+  border: 1.5px solid var(--color-border-strong);
+  border-radius: var(--radius-input);
+  outline: none;
+  resize: vertical;
+  color: var(--color-content-primary);
+}
+.import-textarea:focus {
+  border-color: var(--color-brand-accent);
 }
 
 /* ---- Hint / empty state --------------------------------------------------- */
@@ -275,6 +421,25 @@ body {
   border-radius: 0 10px 10px 0;
 }
 
+.inline-link-chip {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  font-size: 12px;
+  margin-left: 6px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(79, 139, 255, 0.08);
+  border: 1px solid rgba(79, 139, 255, 0.25);
+  color: var(--color-brand-accent);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.inline-link-chip:hover {
+  background: rgba(79, 139, 255, 0.18);
+}
+
 .thread-marker {
   display: inline-flex;
   align-items: center;
@@ -299,12 +464,20 @@ body {
   background: var(--color-brand-primary);
   color: #fff;
   border-radius: 999px;
-  padding: 8px 14px;
+  padding: 10px 16px;
   font-size: 14px;
   font-weight: 500;
   box-shadow: var(--shadow-card);
   cursor: pointer;
   white-space: nowrap;
+  /* Larger tap target on touch devices */
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+
+.sel-toolbar--below {
+  transform: translate(-50%, 0);
 }
 
 /* ---- Bottom sheet (thread) ------------------------------------------------ */
