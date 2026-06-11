@@ -4,6 +4,7 @@ import { api } from "./api";
 import { buildAnchor } from "./anchor";
 import { PromptBox } from "./components/PromptBox";
 import { DocumentView } from "./components/DocumentView";
+import { Markdown } from "./components/Markdown";
 import { SelectionToolbar } from "./components/SelectionToolbar";
 import { ThreadSheet } from "./components/ThreadSheet";
 
@@ -25,6 +26,8 @@ export default function App() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [importMd, setImportMd] = useState("");
+  const [streamingReply, setStreamingReply] = useState("");
+  const [streamingDoc, setStreamingDoc] = useState<{ question: string; text: string } | null>(null);
 
   // --- initial load -------------------------------------------------------
   useEffect(() => {
@@ -139,13 +142,17 @@ export default function App() {
   async function ask(question: string) {
     setError("");
     setBusy(true);
+    setStreamingDoc({ question, text: "" });
     try {
-      const d = await api.createDoc(question);
-      setDoc(d);
-      location.hash = d.id;
+      const docId = await api.createDocStream(question, (token) => {
+        setStreamingDoc((prev) => prev ? { ...prev, text: prev.text + token } : null);
+      });
+      setStreamingDoc(null);
+      await loadDoc(docId);
       api.listDocs().then(setRecents).catch(() => {});
     } catch (e) {
       setError(String(e));
+      setStreamingDoc(null);
     } finally {
       setBusy(false);
     }
@@ -169,10 +176,16 @@ export default function App() {
         const newest = d.threads[d.threads.length - 1];
         setSheet({ mode: "thread", threadId: newest.threadId });
       } else {
-        setDoc(await api.reply(doc.id, sheet.threadId, text));
+        setStreamingReply("");
+        const d = await api.replyStream(doc.id, sheet.threadId, text, (token) => {
+          setStreamingReply((prev) => prev + token);
+        });
+        setStreamingReply("");
+        setDoc(d);
       }
     } catch (e) {
       setError(String(e));
+      setStreamingReply("");
     } finally {
       setBusy(false);
     }
@@ -311,7 +324,16 @@ export default function App() {
         </div>
       )}
 
-      {doc && (
+      {streamingDoc && (
+        <div>
+          <h1 className="doc-title">{streamingDoc.question}</h1>
+          <div className="block">
+            <Markdown>{streamingDoc.text || "…"}</Markdown>
+          </div>
+        </div>
+      )}
+
+      {!streamingDoc && doc && (
         <DocumentView
           doc={doc}
           onOpenThread={(threadId) => setSheet({ mode: "thread", threadId })}
@@ -328,6 +350,7 @@ export default function App() {
           thread={activeThread}
           quote={sheetQuote}
           busy={busy}
+          streamingReply={streamingReply}
           onClose={() => setSheet(null)}
           onSend={sheetSend}
           onAction={runAction}

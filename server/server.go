@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -18,6 +20,7 @@ func (a *API) routes() http.Handler {
 	mux.HandleFunc("GET /api/health", a.health)
 	mux.HandleFunc("GET /api/documents", a.listDocs)
 	mux.HandleFunc("POST /api/documents", a.createDoc)
+	mux.HandleFunc("POST /api/documents/stream", a.createDocStream)
 	mux.HandleFunc("GET /api/documents/{id}", a.getDoc)
 	mux.HandleFunc("DELETE /api/documents/{id}", a.deleteDoc)
 	mux.HandleFunc("POST /api/documents/{id}/threads", a.createThread)
@@ -116,6 +119,62 @@ func (a *API) createDoc(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, doc)
 }
 
+func (a *API) createDocStream(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Question string `json:"question"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if strings.TrimSpace(in.Question) == "" {
+		writeErr(w, http.StatusBadRequest, errors.New("question is required"))
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
+	defer cancel()
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeErr(w, http.StatusInternalServerError, fmt.Errorf("streaming not supported"))
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	md, err := a.llm.Stream(ctx, docSystem, docPrompt(in.Question), func(token string) {
+		b, _ := json.Marshal(token)
+		fmt.Fprintf(w, "data: %s\n\n", b)
+		flusher.Flush()
+	})
+	if err != nil {
+		fmt.Fprintf(w, "data: [ERROR] %s\n\n", err.Error())
+		flusher.Flush()
+		return
+	}
+
+	doc := &TutorDoc{
+		SchemaVersion: "1.0",
+		ID:            newID("doc"),
+		Title:         deriveTitle(in.Question),
+		RootQuestion:  in.Question,
+		CreatedAt:     nowISO(),
+		Provider:      Provider{Name: a.llm.Name(), Model: a.llm.Model()},
+		Blocks:        parseBlocks(md),
+		Threads:       []Thread{},
+		Links:         []DocLink{},
+		Revisions:     []Revision{},
+	}
+	if err := a.store.Save(doc); err != nil {
+		fmt.Fprintf(w, "data: [ERROR] %s\n\n", err.Error())
+		flusher.Flush()
+		return
+	}
+
+	fmt.Fprintf(w, "data: [DONE] %s\n\n", doc.ID)
+	flusher.Flush()
+}
+
 func (a *API) createThread(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Anchor  Anchor `json:"anchor"`
@@ -170,35 +229,68 @@ func (a *API) replyThread(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
 	defer cancel()
 
+	docID := r.PathValue("id")
 	threadID := r.PathValue("threadId")
-	var reply string
-	doc, err := a.store.mutate(r.PathValue("id"), func(doc *TutorDoc) error {
-		t := findThread(doc, threadID)
-		if t == nil {
-			return errNotFound
-		}
-		t.Messages = append(t.Messages, Message{
-			ID: newID("msg"), Role: "user", Text: in.Text, CreatedAt: nowISO(),
-		})
-		var gerr error
-		reply, gerr = a.llm.Generate(ctx, replySystem, threadReplyPrompt(doc, t))
-		if gerr != nil {
-			return gerr
-		}
-		t.Messages = append(t.Messages, Message{
-			ID: newID("msg"), Role: "assistant", Text: reply,
-			CreatedAt: nowISO(), Model: a.llm.Model(),
-		})
-		return nil
-	})
+
+	// Load doc snapshot to build prompt (not saved until stream completes).
+	doc, err := a.store.Load(docID)
 	if err != nil {
-		writeErr(w, statusFor(err), err)
+		writeErr(w, http.StatusNotFound, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, doc)
+	t := findThread(doc, threadID)
+	if t == nil {
+		writeErr(w, http.StatusNotFound, errNotFound)
+		return
+	}
+	userMsg := Message{ID: newID("msg"), Role: "user", Text: in.Text, CreatedAt: nowISO()}
+	t.Messages = append(t.Messages, userMsg)
+	prompt := threadReplyPrompt(doc, t)
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeErr(w, http.StatusInternalServerError, fmt.Errorf("streaming not supported"))
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	reply, streamErr := a.llm.Stream(ctx, replySystem, prompt, func(token string) {
+		b, _ := json.Marshal(token)
+		fmt.Fprintf(w, "data: %s\n\n", b)
+		flusher.Flush()
+	})
+
+	if streamErr != nil {
+		fmt.Fprintf(w, "data: [ERROR] %s\n\n", streamErr.Error())
+		flusher.Flush()
+		return
+	}
+
+	// Persist both messages atomically after the stream completes.
+	assistantMsg := Message{
+		ID: newID("msg"), Role: "assistant", Text: reply,
+		CreatedAt: nowISO(), Model: a.llm.Model(),
+	}
+	if _, err := a.store.mutate(docID, func(d *TutorDoc) error {
+		th := findThread(d, threadID)
+		if th == nil {
+			return errNotFound
+		}
+		th.Messages = append(th.Messages, userMsg, assistantMsg)
+		return nil
+	}); err != nil {
+		fmt.Fprintf(w, "data: [ERROR] %s\n\n", err.Error())
+		flusher.Flush()
+		return
+	}
+
+	fmt.Fprintf(w, "data: [DONE]\n\n")
+	flusher.Flush()
 }
 
 func (a *API) threadAction(w http.ResponseWriter, r *http.Request) {

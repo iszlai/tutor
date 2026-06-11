@@ -15,6 +15,7 @@ export function ThreadSheet({
   thread,
   quote,
   busy,
+  streamingReply,
   onClose,
   onSend,
   onAction,
@@ -22,6 +23,7 @@ export function ThreadSheet({
   thread?: Thread;
   quote: string;
   busy: boolean;
+  streamingReply?: string;
   onClose: () => void;
   onSend: (text: string) => void;
   onAction: (type: string) => void;
@@ -58,7 +60,15 @@ export function ThreadSheet({
           {!thread && (
             <p className="hint">Ask anything about the highlighted text.</p>
           )}
-          {busy && (
+          {streamingReply && (
+            <div className="msg assistant">
+              <div className="who">Tutor</div>
+              <div className="bubble">
+                <Markdown>{streamingReply}</Markdown>
+              </div>
+            </div>
+          )}
+          {busy && !streamingReply && (
             <div className="msg assistant">
               <div className="who">Tutor</div>
               <div className="bubble">…</div>

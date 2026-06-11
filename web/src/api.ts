@@ -30,6 +30,33 @@ export const api = {
       body: JSON.stringify({ question }),
     }),
 
+  createDocStream: async (question: string, onToken: (t: string) => void): Promise<string> => {
+    const res = await fetch(`${BASE}/api/documents/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question }),
+    });
+    if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const parts = buf.split("\n\n");
+      buf = parts.pop() ?? "";
+      for (const part of parts) {
+        if (!part.startsWith("data: ")) continue;
+        const data = part.slice(6).trim();
+        if (data.startsWith("[DONE]")) return data.slice(6).trim(); // doc ID
+        if (data.startsWith("[ERROR]")) throw new Error(data.slice(7).trim() || "stream error");
+        try { onToken(JSON.parse(data) as string); } catch { /* skip malformed */ }
+      }
+    }
+    throw new Error("stream closed without [DONE]");
+  },
+
   importDoc: (markdown: string, title?: string) =>
     req<TutorDoc>("/documents", {
       method: "POST",
@@ -50,6 +77,38 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ text }),
     }),
+
+  replyStream: async (
+    docId: string,
+    threadId: string,
+    text: string,
+    onToken: (t: string) => void
+  ): Promise<TutorDoc> => {
+    const res = await fetch(`${BASE}/api/documents/${docId}/threads/${threadId}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const parts = buf.split("\n\n");
+      buf = parts.pop() ?? "";
+      for (const part of parts) {
+        if (!part.startsWith("data: ")) continue;
+        const data = part.slice(6).trim();
+        if (data === "[DONE]") return api.getDoc(docId);
+        if (data.startsWith("[ERROR]")) throw new Error(data.slice(7).trim() || "stream error");
+        try { onToken(JSON.parse(data) as string); } catch { /* skip malformed */ }
+      }
+    }
+    throw new Error("stream closed without [DONE]");
+  },
 
   action: (docId: string, threadId: string, type: string) =>
     req<TutorDoc>(`/documents/${docId}/threads/${threadId}/actions`, {

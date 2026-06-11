@@ -8,7 +8,16 @@ export default defineConfig({
   server: {
     host: true,
     proxy: {
-      "/api": "http://localhost:8787",
+      "/api": {
+        target: "http://localhost:8787",
+        // Remove Accept-Encoding so the Go server never compresses SSE responses —
+        // compression buffers the entire stream before sending, killing token-by-token delivery.
+        configure: (proxy) => {
+          proxy.on("proxyReq", (proxyReq) => {
+            proxyReq.removeHeader("accept-encoding");
+          });
+        },
+      },
     },
   },
 });

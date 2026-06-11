@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -17,6 +18,8 @@ import (
 // LLM is the provider seam. Claude today; swappable later. See docs/PLAN.md §5.4.
 type LLM interface {
 	Generate(ctx context.Context, system, prompt string) (string, error)
+	// Stream calls onToken for each incremental text chunk and returns the full text.
+	Stream(ctx context.Context, system, prompt string, onToken func(string)) (string, error)
 	Name() string
 	Model() string
 }
@@ -54,8 +57,11 @@ func (c *claudeLLM) Name() string  { return "anthropic" }
 func (c *claudeLLM) Model() string { return string(c.model) }
 
 func (c *claudeLLM) Generate(ctx context.Context, system, prompt string) (string, error) {
-	// Stream and accumulate: keeps long one-pagers under the SDK HTTP timeout.
-	stream := c.client.Messages.NewStreaming(ctx, anthropic.MessageNewParams{
+	return c.Stream(ctx, system, prompt, func(string) {})
+}
+
+func (c *claudeLLM) Stream(ctx context.Context, system, prompt string, onToken func(string)) (string, error) {
+	s := c.client.Messages.NewStreaming(ctx, anthropic.MessageNewParams{
 		Model:     c.model,
 		MaxTokens: 4096,
 		System:    []anthropic.TextBlockParam{{Text: system}},
@@ -63,17 +69,21 @@ func (c *claudeLLM) Generate(ctx context.Context, system, prompt string) (string
 			anthropic.NewUserMessage(anthropic.NewTextBlock(prompt)),
 		},
 	})
-
 	msg := anthropic.Message{}
-	for stream.Next() {
-		if err := msg.Accumulate(stream.Current()); err != nil {
+	for s.Next() {
+		ev := s.Current()
+		if cbe, ok := ev.AsAny().(anthropic.ContentBlockDeltaEvent); ok {
+			if d, ok := cbe.Delta.AsAny().(anthropic.TextDelta); ok && d.Text != "" {
+				onToken(d.Text)
+			}
+		}
+		if err := msg.Accumulate(ev); err != nil {
 			return "", err
 		}
 	}
-	if err := stream.Err(); err != nil {
+	if err := s.Err(); err != nil {
 		return "", err
 	}
-
 	var b strings.Builder
 	for _, block := range msg.Content {
 		if t, ok := block.AsAny().(anthropic.TextBlock); ok {
@@ -102,52 +112,73 @@ func (l *localLLM) Name() string  { return "local" }
 func (l *localLLM) Model() string { return l.model }
 
 func (l *localLLM) Generate(ctx context.Context, system, prompt string) (string, error) {
-	body, _ := json.Marshal(map[string]interface{}{
+	return l.Stream(ctx, system, prompt, func(string) {})
+}
+
+func (l *localLLM) Stream(ctx context.Context, system, prompt string, onToken func(string)) (string, error) {
+	reqBody := map[string]interface{}{
 		"model":       l.model,
-		"stream":      false,
+		"stream":      true,
 		"temperature": 0.3,
 		"messages": []map[string]string{
 			{"role": "system", "content": system},
 			{"role": "user", "content": prompt},
 		},
-	})
-
+	}
+	if v := os.Getenv("TUTOR_LLM_NUM_CTX"); v != "" {
+		var n int
+		fmt.Sscan(v, &n)
+		if n > 0 {
+			reqBody["num_ctx"] = n
+		}
+	}
+	body, _ := json.Marshal(reqBody)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, l.baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	// Some local servers ignore auth; send a dummy key if one is configured.
 	if k := os.Getenv("TUTOR_LOCAL_LLM_KEY"); k != "" {
 		req.Header.Set("Authorization", "Bearer "+k)
 	}
-
-	resp, err := l.http.Do(req)
+	// Use a client without a hard timeout; context handles cancellation.
+	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
-
-	var out struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-		Error struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return "", err
-	}
 	if resp.StatusCode >= 400 {
-		return "", fmt.Errorf("local llm %d: %s", resp.StatusCode, out.Error.Message)
+		var e struct{ Error struct{ Message string `json:"message"` } `json:"error"` }
+		json.NewDecoder(resp.Body).Decode(&e) //nolint:errcheck
+		return "", fmt.Errorf("local llm %d: %s", resp.StatusCode, e.Error.Message)
 	}
-	if len(out.Choices) == 0 {
-		return "", fmt.Errorf("local llm returned no choices")
+	var full strings.Builder
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimPrefix(line, "data: ")
+		if data == "[DONE]" {
+			break
+		}
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					Content string `json:"content"`
+				} `json:"delta"`
+			} `json:"choices"`
+		}
+		if json.Unmarshal([]byte(data), &chunk) != nil || len(chunk.Choices) == 0 {
+			continue
+		}
+		if t := chunk.Choices[0].Delta.Content; t != "" {
+			full.WriteString(t)
+			onToken(t)
+		}
 	}
-	return strings.TrimSpace(out.Choices[0].Message.Content), nil
+	return strings.TrimSpace(full.String()), scanner.Err()
 }
 
 // ---- Mock ------------------------------------------------------------------
@@ -158,6 +189,17 @@ type mockLLM struct{}
 
 func (m *mockLLM) Name() string  { return "mock" }
 func (m *mockLLM) Model() string { return "mock-tutor-1" }
+
+func (m *mockLLM) Stream(_ context.Context, _, prompt string, onToken func(string)) (string, error) {
+	text, err := m.Generate(context.Background(), "", prompt)
+	if err != nil {
+		return "", err
+	}
+	for _, word := range strings.Fields(text) {
+		onToken(word + " ")
+	}
+	return text, nil
+}
 
 func (m *mockLLM) Generate(_ context.Context, _, prompt string) (string, error) {
 	p := strings.ToLower(prompt)
