@@ -13,6 +13,8 @@ Rules:
 - Use short paragraphs, headings, and bullet lists. Keep it to roughly one screen.
 - Put math in KaTeX: inline as $...$ and display as $$...$$.
 - Use fenced code blocks where code or worked steps help.
+- When a diagram, flow, or relationship would help, draw it as a Mermaid
+  diagram in a ` + "```mermaid" + ` fenced block (the document renders these).
 - Define symbols you introduce.
 - Respond in the same language as the user's question. If they write in
   Hungarian, answer in Hungarian; if they ask for a translation, provide it.

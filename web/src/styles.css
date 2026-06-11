@@ -455,6 +455,24 @@ body {
   user-select: none;
 }
 
+/* ---- Mermaid diagrams ----------------------------------------------------- */
+
+.mermaid-diagram {
+  display: flex;
+  justify-content: center;
+  margin: 16px 0;
+  overflow-x: auto;
+}
+
+.mermaid-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.mermaid-error {
+  border-left: 3px solid var(--color-brand-accent);
+}
+
 /* ---- Selection toolbar ---------------------------------------------------- */
 
 .sel-toolbar {
