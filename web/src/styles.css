@@ -480,6 +480,54 @@ body {
   transform: translate(-50%, 0);
 }
 
+/* Docked comment bar for touch devices. Hidden by default (mouse devices use
+   the floating pill above); shown only on coarse pointers, where iOS's native
+   selection callout would otherwise cover a floating pill. */
+.sel-bar {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  /* The floating pill collides with the native iOS selection menu — hide it. */
+  .sel-toolbar {
+    display: none;
+  }
+
+  .sel-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: 0;
+    z-index: 45;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+    padding-top: calc(12px + env(safe-area-inset-top));
+    background: var(--color-brand-primary);
+    color: #fff;
+    box-shadow: var(--shadow-card);
+    cursor: pointer;
+  }
+
+  .sel-bar-hint {
+    font-size: 14px;
+    opacity: 0.85;
+  }
+
+  .sel-bar-btn {
+    font-size: 15px;
+    font-weight: 600;
+    background: rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
+    padding: 8px 18px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+}
+
 /* ---- Bottom sheet (thread) ------------------------------------------------ */
 
 .scrim {
