@@ -131,3 +131,41 @@ export function paintHighlights(
   cssHighlights.set("tutor-comment", new HighlightCtor(...ranges));
   return resolved;
 }
+
+const ANNOTATION_KINDS = ["gap", "jargon", "shaky"] as const;
+
+// Paint Feynman annotations as inline highlights, color-coded by kind, by
+// resolving each verbatim quote within its block (reusing the anchor machinery).
+// Always sets every kind's highlight so stale ranges from a prior doc clear.
+export function paintAnnotations(
+  container: HTMLElement,
+  items: { blockId: string; quote: string; kind: string }[]
+): void {
+  const cssHighlights = (CSS as unknown as { highlights?: Map<string, unknown> }).highlights;
+  if (!cssHighlights || typeof (window as unknown as { Highlight?: unknown }).Highlight === "undefined") {
+    return;
+  }
+  const HighlightCtor = (window as unknown as { Highlight: new (...r: Range[]) => unknown })
+    .Highlight;
+
+  const byKind: Record<string, Range[]> = { gap: [], jargon: [], shaky: [] };
+  for (const it of items) {
+    const ranges = byKind[it.kind];
+    if (!ranges) continue;
+    const block = container.querySelector<HTMLElement>(`[data-block-id="${it.blockId}"]`);
+    if (!block) continue;
+    const range = resolveRange(block, {
+      startBlockId: it.blockId,
+      endBlockId: it.blockId,
+      startOffset: 0,
+      endOffset: 0,
+      exactQuote: it.quote,
+      prefix: "",
+      suffix: "",
+    });
+    if (range) ranges.push(range);
+  }
+  for (const kind of ANNOTATION_KINDS) {
+    cssHighlights.set(`tutor-fey-${kind}`, new HighlightCtor(...byKind[kind]));
+  }
+}

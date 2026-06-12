@@ -2,12 +2,22 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 )
+
+// Annotation marks a verbatim phrase in the learner's explanation that needs
+// attention, so the frontend can highlight it inline (reusing the anchor
+// quote-resolution). Stored on the explanation block's meta.
+type Annotation struct {
+	Quote string `json:"quote"`
+	Kind  string `json:"kind"` // gap|jargon|shaky
+	Note  string `json:"note"`
+}
 
 // Feynman mode: the learner teaches a concept back in their own words and Tutor
 // returns a supportive gap report. A session is a TutorDoc with Mode "feynman";
@@ -42,6 +52,7 @@ func (a *API) createFeynman(w http.ResponseWriter, r *http.Request) {
 		sseError(w, flusher, err)
 		return
 	}
+	anns := a.annotateExplanation(ctx, in.Explanation, report)
 
 	doc := &TutorDoc{
 		SchemaVersion: "1.0",
@@ -51,7 +62,7 @@ func (a *API) createFeynman(w http.ResponseWriter, r *http.Request) {
 		RootQuestion:  in.Topic,
 		CreatedAt:     nowISO(),
 		Provider:      Provider{Name: a.llm.Name(), Model: a.llm.Model()},
-		Blocks:        append([]Block{feynmanExplanationBlock(in.Explanation, 1)}, parseBlocks(report)...),
+		Blocks:        append([]Block{feynmanExplanationBlock(in.Explanation, 1, anns)}, parseBlocks(report)...),
 		Threads:       []Thread{},
 		Links:         []DocLink{},
 		Revisions:     []Revision{},
@@ -103,8 +114,9 @@ func (a *API) feynmanRound(w http.ResponseWriter, r *http.Request) {
 		sseError(w, flusher, err)
 		return
 	}
+	anns := a.annotateExplanation(ctx, in.Explanation, report)
 
-	newBlocks := append([]Block{feynmanExplanationBlock(in.Explanation, round)}, parseBlocks(report)...)
+	newBlocks := append([]Block{feynmanExplanationBlock(in.Explanation, round, anns)}, parseBlocks(report)...)
 	if _, err := a.store.mutate(docID, func(d *TutorDoc) error {
 		d.Blocks = append(d.Blocks, newBlocks...)
 		return nil
@@ -117,8 +129,9 @@ func (a *API) feynmanRound(w http.ResponseWriter, r *http.Request) {
 }
 
 // feynmanExplanationBlock renders the learner's words as a labeled callout,
-// tagged so the frontend can style it and so we can count passes.
-func feynmanExplanationBlock(explanation string, round int) Block {
+// tagged so the frontend can style it and so we can count passes. Any
+// annotations are attached for inline highlighting.
+func feynmanExplanationBlock(explanation string, round int, anns []Annotation) Block {
 	label := "🧑‍🏫 **Your explanation**"
 	if round > 1 {
 		label = fmt.Sprintf("🧑‍🏫 **Your explanation — pass %d**", round)
@@ -128,12 +141,79 @@ func feynmanExplanationBlock(explanation string, round int) Block {
 	for _, line := range strings.Split(strings.TrimSpace(explanation), "\n") {
 		b.WriteString("> " + line + "\n")
 	}
+	meta := map[string]interface{}{"feynman": "explanation", "round": round}
+	if len(anns) > 0 {
+		meta["annotations"] = anns
+	}
 	return Block{
 		BlockID:  newID("blk"),
 		Type:     "callout",
 		Markdown: strings.TrimRight(b.String(), "\n"),
-		Meta:     map[string]interface{}{"feynman": "explanation", "round": round},
+		Meta:     meta,
 	}
+}
+
+const annotateSystem = `You mark up a learner's explanation for a study tool.
+Given their explanation and a coach's feedback, return ONLY a JSON array of the
+specific phrases in the explanation that need attention. Each item:
+  {"quote": "<verbatim substring of the explanation>",
+   "kind": "gap" | "jargon" | "shaky",
+   "note": "<one short clause: why>"}
+Rules:
+- "quote" MUST be copied verbatim from the explanation (an exact substring).
+- kind: "jargon" = a term used without explaining it; "gap" = vague or missing;
+  "shaky" = likely incorrect or imprecise.
+- At most 6 items. If nothing stands out, return [].
+- Output JSON only — no prose, no code fences.`
+
+// annotateExplanation asks the model for the specific phrases to highlight. It's
+// best-effort (bounded time, lenient parsing); failure just means no inline
+// highlights — the prose gap report still stands.
+func (a *API) annotateExplanation(ctx context.Context, explanation, report string) []Annotation {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	prompt := "Explanation:\n\"\"\"\n" + explanation + "\n\"\"\"\n\nCoach feedback:\n\"\"\"\n" +
+		report + "\n\"\"\"\n\nReturn the JSON array."
+	out, err := a.llm.Generate(ctx, annotateSystem, prompt)
+	if err != nil {
+		return nil
+	}
+	return parseAnnotations(out, explanation)
+}
+
+// parseAnnotations extracts the JSON array from a model response and keeps only
+// well-formed items whose quote really occurs in the explanation (dropping any
+// hallucinated phrases).
+func parseAnnotations(out, explanation string) []Annotation {
+	i := strings.Index(out, "[")
+	j := strings.LastIndex(out, "]")
+	if i < 0 || j <= i {
+		return nil
+	}
+	var raw []Annotation
+	if json.Unmarshal([]byte(out[i:j+1]), &raw) != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	anns := []Annotation{}
+	for _, an := range raw {
+		q := strings.TrimSpace(an.Quote)
+		if q == "" || seen[q] || !strings.Contains(explanation, q) {
+			continue
+		}
+		switch an.Kind {
+		case "gap", "jargon", "shaky":
+		default:
+			an.Kind = "gap"
+		}
+		an.Quote = q
+		anns = append(anns, an)
+		seen[q] = true
+		if len(anns) >= 6 {
+			break
+		}
+	}
+	return anns
 }
 
 func feynmanRoundCount(doc *TutorDoc) int {

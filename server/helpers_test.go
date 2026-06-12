@@ -4,6 +4,32 @@ import (
 	"testing"
 )
 
+func TestParseAnnotations(t *testing.T) {
+	expl := "recursion is when a function calls itself until a base case"
+
+	// Well-formed array, possibly wrapped in prose/fences the model added.
+	out := "Sure!\n```json\n[" +
+		`{"quote":"calls itself","kind":"gap","note":"how?"},` +
+		`{"quote":"base case","kind":"jargon","note":"undefined"}` +
+		"]\n```"
+	anns := parseAnnotations(out, expl)
+	if len(anns) != 2 || anns[0].Quote != "calls itself" || anns[1].Kind != "jargon" {
+		t.Fatalf("got %+v", anns)
+	}
+
+	// Hallucinated quote (not in explanation) is dropped; bad kind defaults to gap.
+	out2 := `[{"quote":"calls itself","kind":"weird","note":"x"},{"quote":"not present","kind":"gap","note":"y"}]`
+	anns2 := parseAnnotations(out2, expl)
+	if len(anns2) != 1 || anns2[0].Kind != "gap" {
+		t.Fatalf("filter/default failed: %+v", anns2)
+	}
+
+	// No JSON at all → nil.
+	if got := parseAnnotations("nothing structured here", expl); got != nil {
+		t.Fatalf("expected nil, got %+v", got)
+	}
+}
+
 func TestStoreSearch(t *testing.T) {
 	s, err := NewStore(t.TempDir())
 	if err != nil {

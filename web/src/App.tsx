@@ -459,6 +459,17 @@ export default function App() {
         </div>
       )}
 
+      {!streamingDoc && doc?.mode === "feynman" && (
+        <div className="feynman-legend">
+          <span className="fey-chip fey-chip--gap">vague / missing</span>
+          <span className="fey-chip fey-chip--jargon">undefined jargon</span>
+          <span className="fey-chip fey-chip--shaky">looks shaky</span>
+          <span className="feynman-legend-note">
+            highlighted in your own words — see the notes below
+          </span>
+        </div>
+      )}
+
       {!streamingDoc && doc && (
         <DocumentView
           doc={doc}

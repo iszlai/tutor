@@ -57,10 +57,26 @@ language (Hungarian-aware). No numeric score.
 ### Finish
 - [x] Commit + push to the branch.
 
+## Anchored gap highlighting — DONE (builds, tests pass)
+After the gap report, a best-effort structured pass (`annotateExplanation`) asks
+the model for verbatim phrases to flag, returned as JSON and parsed leniently
+(`parseAnnotations` drops hallucinated quotes / defaults bad kinds). Stored on
+the explanation block's `meta.annotations` as `[{quote, kind, note}]`.
+
+Frontend `paintAnnotations` (anchor.ts) resolves each quote to a DOM range via
+the existing `resolveRange` and paints it with the CSS Custom Highlight API,
+color-coded by kind (`tutor-fey-gap|jargon|shaky`). DocumentView calls it on
+repaint; App shows a color legend above Feynman docs.
+- Backend: `Annotation` type, `annotateSystem` prompt, `annotateExplanation`,
+  `parseAnnotations` (+ test), wired into both handlers via
+  `feynmanExplanationBlock(expl, round, anns)`.
+- Frontend: `Annotation` type, `paintAnnotations`, DocumentView wiring, legend,
+  `::highlight(tutor-fey-*)` + `.fey-chip*` CSS.
+
 ## Future adds (not built)
 - "Feynman an existing doc" entry (hide explanation, re-explain, grade vs source).
-- Anchor each gap onto the exact phrase in the learner's words (reuse 3-locator
-  anchors) for inline highlighting.
+- Hover/tap a highlighted phrase to show its note inline (the note is already
+  stored; CSS Highlights can't host tooltips, so this needs span wrapping).
 - A "clarity progression" across passes.
 
 ## Resume notes

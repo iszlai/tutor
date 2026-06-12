@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
-import type { DocLink, Thread, TutorDoc } from "../types";
-import { paintHighlights } from "../anchor";
+import type { Annotation, DocLink, Thread, TutorDoc } from "../types";
+import { paintHighlights, paintAnnotations } from "../anchor";
 import { Markdown } from "./Markdown";
 
 export function DocumentView({
@@ -20,6 +20,19 @@ export function DocumentView({
     paintHighlights(
       ref.current,
       doc.threads.map((t) => ({ threadId: t.threadId, anchor: t.anchor }))
+    );
+    // Feynman: highlight the flagged phrases inside the learner's explanations.
+    paintAnnotations(
+      ref.current,
+      doc.blocks.flatMap((b) =>
+        Array.isArray(b.meta?.annotations)
+          ? (b.meta!.annotations as Annotation[]).map((a) => ({
+              blockId: b.blockId,
+              quote: a.quote,
+              kind: a.kind,
+            }))
+          : []
+      )
     );
   }, [doc]);
 

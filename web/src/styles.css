@@ -54,6 +54,17 @@ body {
   color: inherit;
 }
 
+/* Feynman annotation tints — color-coded by kind. */
+::highlight(tutor-fey-gap) {
+  background-color: rgba(245, 158, 11, 0.30);
+}
+::highlight(tutor-fey-jargon) {
+  background-color: rgba(124, 92, 255, 0.24);
+}
+::highlight(tutor-fey-shaky) {
+  background-color: rgba(220, 53, 69, 0.22);
+}
+
 /* ---- App shell ------------------------------------------------------------ */
 
 .app {
@@ -540,6 +551,36 @@ body {
   border-left-color: var(--color-brand-primary);
   background: rgba(10, 20, 48, 0.05);
   color: var(--color-content-primary);
+}
+
+.feynman-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 2px;
+}
+
+.fey-chip {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 999px;
+  color: var(--color-content-primary);
+}
+.fey-chip--gap {
+  background-color: rgba(245, 158, 11, 0.30);
+}
+.fey-chip--jargon {
+  background-color: rgba(124, 92, 255, 0.24);
+}
+.fey-chip--shaky {
+  background-color: rgba(220, 53, 69, 0.22);
+}
+
+.feynman-legend-note {
+  font-size: 12px;
+  color: var(--color-content-tertiary);
 }
 
 .feynman-refine {

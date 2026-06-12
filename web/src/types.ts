@@ -82,6 +82,12 @@ export interface DocSummary {
   updatedAt: string;
 }
 
+export interface Annotation {
+  quote: string;
+  kind: "gap" | "jargon" | "shaky";
+  note: string;
+}
+
 export interface SearchHit {
   id: string;
   title: string;
