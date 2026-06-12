@@ -1,15 +1,7 @@
 import { useState } from "react";
 import type { Thread } from "../types";
+import type { Strings } from "../i18n";
 import { Markdown } from "./Markdown";
-
-const ACTIONS: { type: string; label: string }[] = [
-  { type: "createLinkedPage", label: "↳ Linked page" },
-  { type: "rewrite", label: "✎ Rewrite" },
-  { type: "insert", label: "( ) Insert" },
-  { type: "insertSummary", label: "≡ Insert summary" },
-  { type: "generateVisual", label: "◈ Visual" },
-  { type: "generateExercise", label: "✓ Exercise" },
-];
 
 export function ThreadSheet({
   thread,
@@ -19,6 +11,7 @@ export function ThreadSheet({
   onClose,
   onSend,
   onAction,
+  t,
 }: {
   thread?: Thread;
   quote: string;
@@ -27,8 +20,18 @@ export function ThreadSheet({
   onClose: () => void;
   onSend: (text: string) => void;
   onAction: (type: string) => void;
+  t: Strings;
 }) {
   const [text, setText] = useState("");
+
+  const actions: { type: string; label: string }[] = [
+    { type: "createLinkedPage", label: t.actLinkedPage },
+    { type: "rewrite", label: t.actRewrite },
+    { type: "insert", label: t.actInsert },
+    { type: "insertSummary", label: t.actInsertSummary },
+    { type: "generateVisual", label: t.actVisual },
+    { type: "generateExercise", label: t.actExercise },
+  ];
 
   function send() {
     const t = text.trim();
@@ -44,25 +47,25 @@ export function ThreadSheet({
         <div className="sheet-grab" />
         <div className="sheet-head">
           <div className="sheet-quote">
-            On <mark>{quote}</mark>
+            {t.on} <mark>{quote}</mark>
           </div>
         </div>
 
         <div className="messages">
           {thread?.messages.map((m) => (
             <div key={m.id} className={`msg ${m.role}`}>
-              <div className="who">{m.role === "user" ? "You" : "Tutor"}</div>
+              <div className="who">{m.role === "user" ? t.you : t.tutor}</div>
               <div className="bubble">
                 <Markdown>{m.text}</Markdown>
               </div>
             </div>
           ))}
           {!thread && (
-            <p className="hint">Ask anything about the highlighted text.</p>
+            <p className="hint">{t.askHighlighted}</p>
           )}
           {streamingReply && (
             <div className="msg assistant">
-              <div className="who">Tutor</div>
+              <div className="who">{t.tutor}</div>
               <div className="bubble">
                 <Markdown>{streamingReply}</Markdown>
               </div>
@@ -70,7 +73,7 @@ export function ThreadSheet({
           )}
           {busy && !streamingReply && (
             <div className="msg assistant">
-              <div className="who">Tutor</div>
+              <div className="who">{t.tutor}</div>
               <div className="bubble">…</div>
             </div>
           )}
@@ -78,7 +81,7 @@ export function ThreadSheet({
 
         {thread && (
           <div className="actions-row">
-            {ACTIONS.map((a) => (
+            {actions.map((a) => (
               <button
                 key={a.type}
                 className="btn btn-ghost btn-sm"
@@ -94,14 +97,14 @@ export function ThreadSheet({
         <div className="composer">
           <input
             value={text}
-            placeholder={thread ? "Reply…" : "What do you want to know?"}
+            placeholder={thread ? t.replyPlaceholder : t.newThreadPlaceholder}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && send()}
             enterKeyHint="send"
             autoFocus
           />
           <button className="btn btn-primary" onClick={send} disabled={busy || !text.trim()}>
-            {busy ? <span className="spinner" /> : "Send"}
+            {busy ? <span className="spinner" /> : t.send}
           </button>
         </div>
       </div>

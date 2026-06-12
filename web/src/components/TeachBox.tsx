@@ -8,11 +8,15 @@ export function TeachBox({
   submitLabel,
   busy,
   onSubmit,
+  topicPlaceholder,
+  explainPlaceholder,
 }: {
   showTopic: boolean;
   submitLabel: string;
   busy: boolean;
   onSubmit: (topic: string, explanation: string) => void;
+  topicPlaceholder: string;
+  explainPlaceholder: string;
 }) {
   const [topic, setTopic] = useState("");
   const [text, setText] = useState("");
@@ -32,14 +36,14 @@ export function TeachBox({
         <input
           className="teach-topic"
           value={topic}
-          placeholder="What concept are you teaching? e.g. recursion"
+          placeholder={topicPlaceholder}
           onChange={(e) => setTopic(e.target.value)}
         />
       )}
       <textarea
         className="teach-text"
         value={text}
-        placeholder="Explain it in your own words, as if to a curious beginner…"
+        placeholder={explainPlaceholder}
         onChange={(e) => setText(e.target.value)}
       />
       <button className="btn btn-primary teach-submit" onClick={submit} disabled={!canSubmit}>

@@ -29,6 +29,7 @@ func (a *API) createFeynman(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Topic       string `json:"topic"`
 		Explanation string `json:"explanation"`
+		Lang        string `json:"lang"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -47,12 +48,12 @@ func (a *API) createFeynman(w http.ResponseWriter, r *http.Request) {
 	}
 	sseHeaders(w)
 
-	report, err := a.llm.Stream(ctx, feynmanSystem, feynmanPrompt(in.Topic, in.Explanation, ""), sseToken(w, flusher))
+	report, err := a.llm.Stream(ctx, withLang(feynmanSystem, in.Lang), feynmanPrompt(in.Topic, in.Explanation, ""), sseToken(w, flusher))
 	if err != nil {
 		sseError(w, flusher, err)
 		return
 	}
-	anns := a.annotateExplanation(ctx, in.Explanation, report)
+	anns := a.annotateExplanation(ctx, in.Explanation, report, in.Lang)
 
 	doc := &TutorDoc{
 		SchemaVersion: "1.0",
@@ -78,6 +79,7 @@ func (a *API) createFeynman(w http.ResponseWriter, r *http.Request) {
 func (a *API) feynmanRound(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Explanation string `json:"explanation"`
+		Lang        string `json:"lang"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -108,13 +110,13 @@ func (a *API) feynmanRound(w http.ResponseWriter, r *http.Request) {
 	}
 	sseHeaders(w)
 
-	report, err := a.llm.Stream(ctx, feynmanSystem,
+	report, err := a.llm.Stream(ctx, withLang(feynmanSystem, in.Lang),
 		feynmanPrompt(doc.RootQuestion, in.Explanation, sessionText(doc)), sseToken(w, flusher))
 	if err != nil {
 		sseError(w, flusher, err)
 		return
 	}
-	anns := a.annotateExplanation(ctx, in.Explanation, report)
+	anns := a.annotateExplanation(ctx, in.Explanation, report, in.Lang)
 
 	newBlocks := append([]Block{feynmanExplanationBlock(in.Explanation, round, anns)}, parseBlocks(report)...)
 	if _, err := a.store.mutate(docID, func(d *TutorDoc) error {
@@ -166,15 +168,29 @@ Rules:
 - At most 6 items. If nothing stands out, return [].
 - Output JSON only — no prose, no code fences.`
 
+// noteLangHint forces only the "note" field's language, leaving the verbatim
+// "quote" substrings untouched (a blanket directive would risk translating them
+// and breaking the substring match that gates each highlight).
+func noteLangHint(lang string) string {
+	switch lang {
+	case "hu":
+		return "\n- Write each \"note\" in Hungarian; keep every \"quote\" verbatim."
+	case "en":
+		return "\n- Write each \"note\" in English; keep every \"quote\" verbatim."
+	default:
+		return ""
+	}
+}
+
 // annotateExplanation asks the model for the specific phrases to highlight. It's
 // best-effort (bounded time, lenient parsing); failure just means no inline
 // highlights — the prose gap report still stands.
-func (a *API) annotateExplanation(ctx context.Context, explanation, report string) []Annotation {
+func (a *API) annotateExplanation(ctx context.Context, explanation, report, lang string) []Annotation {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	prompt := "Explanation:\n\"\"\"\n" + explanation + "\n\"\"\"\n\nCoach feedback:\n\"\"\"\n" +
 		report + "\n\"\"\"\n\nReturn the JSON array."
-	out, err := a.llm.Generate(ctx, annotateSystem, prompt)
+	out, err := a.llm.Generate(ctx, annotateSystem+noteLangHint(lang), prompt)
 	if err != nil {
 		return nil
 	}

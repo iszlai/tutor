@@ -78,6 +78,7 @@ func (a *API) createDoc(w http.ResponseWriter, r *http.Request) {
 		Question string `json:"question"`
 		Markdown string `json:"markdown"` // optional: import raw md instead of generating
 		Title    string `json:"title"`    // optional: override title when importing
+		Lang     string `json:"lang"`     // "en" | "hu": forces the response language
 	}
 	if !decode(w, r, &in) {
 		return
@@ -104,7 +105,7 @@ func (a *API) createDoc(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 		defer cancel()
 		var err error
-		md, err = a.llm.Generate(ctx, docSystem, docPrompt(in.Question))
+		md, err = a.llm.Generate(ctx, withLang(docSystem, in.Lang), docPrompt(in.Question))
 		if err != nil {
 			writeErr(w, http.StatusBadGateway, err)
 			return
@@ -134,6 +135,7 @@ func (a *API) createDoc(w http.ResponseWriter, r *http.Request) {
 func (a *API) createDocStream(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Question string `json:"question"`
+		Lang     string `json:"lang"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -154,7 +156,7 @@ func (a *API) createDocStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	md, err := a.llm.Stream(ctx, docSystem, docPrompt(in.Question), func(token string) {
+	md, err := a.llm.Stream(ctx, withLang(docSystem, in.Lang), docPrompt(in.Question), func(token string) {
 		b, _ := json.Marshal(token)
 		fmt.Fprintf(w, "data: %s\n\n", b)
 		flusher.Flush()
@@ -191,6 +193,7 @@ func (a *API) createThread(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Anchor  Anchor `json:"anchor"`
 		Message string `json:"message"`
+		Lang    string `json:"lang"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -216,7 +219,7 @@ func (a *API) createThread(w http.ResponseWriter, r *http.Request) {
 		Actions: []ThreadAction{},
 	}
 
-	reply, err := a.llm.Generate(ctx, replySystem, threadReplyPrompt(doc, &t))
+	reply, err := a.llm.Generate(ctx, withLang(replySystem, in.Lang), threadReplyPrompt(doc, &t))
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err)
 		return
@@ -237,6 +240,7 @@ func (a *API) createThread(w http.ResponseWriter, r *http.Request) {
 func (a *API) replyThread(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Text string `json:"text"`
+		Lang string `json:"lang"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -271,7 +275,7 @@ func (a *API) replyThread(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	reply, streamErr := a.llm.Stream(ctx, replySystem, prompt, func(token string) {
+	reply, streamErr := a.llm.Stream(ctx, withLang(replySystem, in.Lang), prompt, func(token string) {
 		b, _ := json.Marshal(token)
 		fmt.Fprintf(w, "data: %s\n\n", b)
 		flusher.Flush()
@@ -308,6 +312,7 @@ func (a *API) replyThread(w http.ResponseWriter, r *http.Request) {
 func (a *API) threadAction(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Type string `json:"type"`
+		Lang string `json:"lang"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -315,7 +320,7 @@ func (a *API) threadAction(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 	defer cancel()
 
-	doc, err := a.runAction(ctx, r.PathValue("id"), r.PathValue("threadId"), in.Type)
+	doc, err := a.runAction(ctx, r.PathValue("id"), r.PathValue("threadId"), in.Type, in.Lang)
 	if err != nil {
 		writeErr(w, statusFor(err), err)
 		return

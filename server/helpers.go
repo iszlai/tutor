@@ -26,6 +26,27 @@ func decode(w http.ResponseWriter, r *http.Request, v interface{}) bool {
 	return true
 }
 
+// langDirective returns a hard instruction that forces the response language,
+// overriding any "match the user's language" rule in the base system prompt.
+// An empty or unknown lang returns "" so the default behavior is preserved.
+func langDirective(lang string) string {
+	switch lang {
+	case "hu":
+		return "\n\nIMPORTANT: Write your ENTIRE response in Hungarian (magyarul), " +
+			"no matter what language the question, selection, or surrounding text is in."
+	case "en":
+		return "\n\nIMPORTANT: Write your ENTIRE response in English, " +
+			"no matter what language the question, selection, or surrounding text is in."
+	default:
+		return ""
+	}
+}
+
+// withLang appends the language directive for lang to a base system prompt.
+func withLang(system, lang string) string {
+	return system + langDirective(lang)
+}
+
 func statusFor(err error) int {
 	if errors.Is(err, errNotFound) {
 		return http.StatusNotFound
