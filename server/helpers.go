@@ -93,12 +93,18 @@ func withCORS(next http.Handler) http.Handler {
 	})
 }
 
-// titleFromMarkdown extracts the text of the first # heading, or returns "".
+// titleFromMarkdown extracts the text of the first level-1 or level-2 heading,
+// or returns "". Import docs typically open with a level-1 (#) heading, while
+// generated docs (docSystem/explainSystem) open with a level-2 (##) heading —
+// both must yield a title. First heading wins by line order.
 func titleFromMarkdown(md string) string {
 	for _, line := range strings.Split(md, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "# ") {
 			return strings.TrimSpace(strings.TrimPrefix(line, "# "))
+		}
+		if strings.HasPrefix(line, "## ") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "## "))
 		}
 	}
 	return ""

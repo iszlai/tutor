@@ -5,6 +5,7 @@ import { type Lang, getStoredLang, storeLang, strings } from "./i18n";
 import { buildAnchor } from "./anchor";
 import { PromptBox } from "./components/PromptBox";
 import { TeachBox } from "./components/TeachBox";
+import { ExplainBox } from "./components/ExplainBox";
 import { DocumentView } from "./components/DocumentView";
 import { Markdown } from "./components/Markdown";
 import { SelectionToolbar } from "./components/SelectionToolbar";
@@ -32,7 +33,7 @@ export default function App() {
   const [importMd, setImportMd] = useState("");
   const [streamingReply, setStreamingReply] = useState("");
   const [streamingDoc, setStreamingDoc] = useState<{ question: string; text: string } | null>(null);
-  const [mode, setMode] = useState<"learn" | "teach">("learn");
+  const [mode, setMode] = useState<"learn" | "teach" | "explain">("learn");
   const [streamingRound, setStreamingRound] = useState<string | null>(null);
   const [lang, setLang] = useState<Lang>(getStoredLang);
   const t = strings(lang);
@@ -178,6 +179,26 @@ export default function App() {
     try {
       const docId = await api.createDocStream(question, (token) => {
         setStreamingDoc((prev) => prev ? { ...prev, text: prev.text + token } : null);
+      });
+      setStreamingDoc(null);
+      await loadDoc(docId);
+      api.listDocs().then(setRecents).catch(() => {});
+    } catch (e) {
+      setError(String(e));
+      setStreamingDoc(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Explain mode: paste a document, get a generated one-page explanation.
+  async function explain(source: string) {
+    setError("");
+    setBusy(true);
+    setStreamingDoc({ question: t.explainMode, text: "" });
+    try {
+      const docId = await api.explainStream(source, (token) => {
+        setStreamingDoc((prev) => (prev ? { ...prev, text: prev.text + token } : null));
       });
       setStreamingDoc(null);
       await loadDoc(docId);
@@ -394,16 +415,24 @@ export default function App() {
         >
           {t.teach}
         </button>
+        <button
+          className={`mode-tab${mode === "explain" ? " mode-tab--active" : ""}`}
+          onClick={() => setMode("explain")}
+          title={t.explainModeTitle}
+        >
+          {t.explainMode}
+        </button>
       </div>
 
-      {mode === "learn" ? (
+      {mode === "learn" && (
         <PromptBox
           onSubmit={ask}
           busy={busy && !doc}
           placeholder={t.askPlaceholder}
           submitLabel={t.ask}
         />
-      ) : (
+      )}
+      {mode === "teach" && (
         <TeachBox
           showTopic
           submitLabel={t.getFeedback}
@@ -413,8 +442,17 @@ export default function App() {
           explainPlaceholder={t.explainPlaceholder}
         />
       )}
+      {mode === "explain" && (
+        <ExplainBox
+          submitLabel={t.explainSubmit}
+          busy={busy && !doc}
+          onSubmit={explain}
+          placeholder={t.explainSourcePlaceholder}
+        />
+      )}
 
       {mode === "teach" && <p className="hint">{t.feynmanIntro}</p>}
+      {mode === "explain" && !doc && <p className="hint">{t.explainIntro}</p>}
 
       {mode === "learn" && (
         <>
