@@ -63,20 +63,27 @@ the model for verbatim phrases to flag, returned as JSON and parsed leniently
 (`parseAnnotations` drops hallucinated quotes / defaults bad kinds). Stored on
 the explanation block's `meta.annotations` as `[{quote, kind, note}]`.
 
-Frontend `paintAnnotations` (anchor.ts) resolves each quote to a DOM range via
-the existing `resolveRange` and paints it with the CSS Custom Highlight API,
-color-coded by kind (`tutor-fey-gap|jargon|shaky`). DocumentView calls it on
-repaint; App shows a color legend above Feynman docs.
+Frontend `markAnnotations` (anchor.ts) resolves each quote to a DOM range via
+the existing `resolveRange` and wraps it in a `<mark class="fey-mark fey-mark--KIND">`
+(note on `data-note`). Real elements → tappable. DocumentView calls it on repaint
+(idempotent: skips blocks already marked), and a delegated click handler opens a
+small note popover. App shows a color legend above Feynman docs.
+
+Earlier iteration used the CSS Custom Highlight API (`::highlight(tutor-fey-*)`),
+but that can't host tap interaction, so it was replaced by wrapped marks. Thread
+comments still use the Highlight API via `paintHighlights`.
 - Backend: `Annotation` type, `annotateSystem` prompt, `annotateExplanation`,
   `parseAnnotations` (+ test), wired into both handlers via
   `feynmanExplanationBlock(expl, round, anns)`.
 - Frontend: `Annotation` type, `paintAnnotations`, DocumentView wiring, legend,
   `::highlight(tutor-fey-*)` + `.fey-chip*` CSS.
 
+## Tap-to-see-note — DONE
+Annotations are wrapped marks (see above); tapping one opens a popover with the
+note + kind label. Tapping elsewhere dismisses. `web/vite build` clean.
+
 ## Future adds (not built)
 - "Feynman an existing doc" entry (hide explanation, re-explain, grade vs source).
-- Hover/tap a highlighted phrase to show its note inline (the note is already
-  stored; CSS Highlights can't host tooltips, so this needs span wrapping).
 - A "clarity progression" across passes.
 
 ## Resume notes

@@ -465,7 +465,7 @@ export default function App() {
           <span className="fey-chip fey-chip--jargon">undefined jargon</span>
           <span className="fey-chip fey-chip--shaky">looks shaky</span>
           <span className="feynman-legend-note">
-            highlighted in your own words — see the notes below
+            highlighted in your own words — tap one to see why
           </span>
         </div>
       )}

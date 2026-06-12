@@ -132,40 +132,45 @@ export function paintHighlights(
   return resolved;
 }
 
-const ANNOTATION_KINDS = ["gap", "jargon", "shaky"] as const;
-
-// Paint Feynman annotations as inline highlights, color-coded by kind, by
-// resolving each verbatim quote within its block (reusing the anchor machinery).
-// Always sets every kind's highlight so stale ranges from a prior doc clear.
-export function paintAnnotations(
+// Wrap Feynman-flagged phrases in <mark> elements so they can be tapped for the
+// note. Each quote is resolved within its block via the anchor machinery, then
+// wrapped (color-coded by kind, note carried on data-note). Unlike the CSS
+// Highlight API these are real elements, so they support tap interaction.
+// Idempotent: a block already containing marks is left alone (annotations are
+// immutable per block, and React reuses the DOM across repaints).
+export function markAnnotations(
   container: HTMLElement,
-  items: { blockId: string; quote: string; kind: string }[]
+  items: { blockId: string; quote: string; kind: string; note: string }[]
 ): void {
-  const cssHighlights = (CSS as unknown as { highlights?: Map<string, unknown> }).highlights;
-  if (!cssHighlights || typeof (window as unknown as { Highlight?: unknown }).Highlight === "undefined") {
-    return;
-  }
-  const HighlightCtor = (window as unknown as { Highlight: new (...r: Range[]) => unknown })
-    .Highlight;
-
-  const byKind: Record<string, Range[]> = { gap: [], jargon: [], shaky: [] };
+  const byBlock = new Map<string, typeof items>();
   for (const it of items) {
-    const ranges = byKind[it.kind];
-    if (!ranges) continue;
-    const block = container.querySelector<HTMLElement>(`[data-block-id="${it.blockId}"]`);
-    if (!block) continue;
-    const range = resolveRange(block, {
-      startBlockId: it.blockId,
-      endBlockId: it.blockId,
-      startOffset: 0,
-      endOffset: 0,
-      exactQuote: it.quote,
-      prefix: "",
-      suffix: "",
-    });
-    if (range) ranges.push(range);
+    const list = byBlock.get(it.blockId) ?? [];
+    list.push(it);
+    byBlock.set(it.blockId, list);
   }
-  for (const kind of ANNOTATION_KINDS) {
-    cssHighlights.set(`tutor-fey-${kind}`, new HighlightCtor(...byKind[kind]));
+  for (const [blockId, list] of byBlock) {
+    const block = container.querySelector<HTMLElement>(`[data-block-id="${blockId}"]`);
+    if (!block || block.querySelector(".fey-mark")) continue;
+    for (const it of list) {
+      const range = resolveRange(block, {
+        startBlockId: blockId,
+        endBlockId: blockId,
+        startOffset: 0,
+        endOffset: 0,
+        exactQuote: it.quote,
+        prefix: "",
+        suffix: "",
+      });
+      if (!range) continue;
+      const mark = document.createElement("mark");
+      mark.className = `fey-mark fey-mark--${it.kind}`;
+      mark.dataset.note = it.note;
+      mark.dataset.kind = it.kind;
+      try {
+        range.surroundContents(mark); // throws if the quote spans nodes — skip
+      } catch {
+        /* cross-node phrase; leave it unmarked */
+      }
+    }
   }
 }

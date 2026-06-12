@@ -1,7 +1,15 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Annotation, DocLink, Thread, TutorDoc } from "../types";
-import { paintHighlights, paintAnnotations } from "../anchor";
+import { paintHighlights, markAnnotations } from "../anchor";
 import { Markdown } from "./Markdown";
+
+const KIND_LABEL: Record<string, string> = {
+  gap: "vague / missing",
+  jargon: "undefined jargon",
+  shaky: "looks shaky",
+};
+
+type NotePopover = { text: string; kind: string; x: number; y: number };
 
 export function DocumentView({
   doc,
@@ -13,16 +21,19 @@ export function DocumentView({
   onNavigate: (docId: string) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [note, setNote] = useState<NotePopover | null>(null);
 
-  // Repaint anchored-comment highlights whenever the doc changes.
+  // Repaint anchored-comment highlights and Feynman marks whenever the doc changes.
   useEffect(() => {
     if (!ref.current) return;
+    setNote(null);
     paintHighlights(
       ref.current,
       doc.threads.map((t) => ({ threadId: t.threadId, anchor: t.anchor }))
     );
-    // Feynman: highlight the flagged phrases inside the learner's explanations.
-    paintAnnotations(
+    // Feynman: wrap the flagged phrases inside the learner's explanations so
+    // they can be tapped for the note.
+    markAnnotations(
       ref.current,
       doc.blocks.flatMap((b) =>
         Array.isArray(b.meta?.annotations)
@@ -30,11 +41,28 @@ export function DocumentView({
               blockId: b.blockId,
               quote: a.quote,
               kind: a.kind,
+              note: a.note,
             }))
           : []
       )
     );
   }, [doc]);
+
+  // Tap a Feynman mark to reveal its note; tap elsewhere in the doc to dismiss.
+  function onDocClick(e: React.MouseEvent) {
+    const mark = (e.target as HTMLElement).closest<HTMLElement>(".fey-mark");
+    if (!mark) {
+      setNote(null);
+      return;
+    }
+    const r = mark.getBoundingClientRect();
+    setNote({
+      text: mark.dataset.note ?? "",
+      kind: mark.dataset.kind ?? "gap",
+      x: r.left + r.width / 2,
+      y: r.bottom + 6,
+    });
+  }
 
   const threadsByBlock = new Map<string, Thread[]>();
   for (const t of doc.threads) {
@@ -71,7 +99,7 @@ export function DocumentView({
         </div>
       )}
 
-      <div ref={ref}>
+      <div ref={ref} onClick={onDocClick}>
         {doc.blocks.map((b) => {
           const threads = threadsByBlock.get(b.blockId) ?? [];
           const blockLinks = inlineLinks.get(b.blockId) ?? [];
@@ -106,6 +134,18 @@ export function DocumentView({
           );
         })}
       </div>
+
+      {note && (
+        <>
+          <div className="fey-popover-scrim" onClick={() => setNote(null)} />
+          <div className="fey-popover" style={{ left: note.x, top: note.y }}>
+            <span className={`fey-popover-kind fey-popover-kind--${note.kind}`}>
+              {KIND_LABEL[note.kind] ?? note.kind}
+            </span>
+            {note.text}
+          </div>
+        </>
+      )}
     </div>
   );
 }
