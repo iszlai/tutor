@@ -20,6 +20,13 @@ This is the working scaffold. The full product spec lives in
 Runs out of the box with a **mock LLM** (no API key needed). Set
 `ANTHROPIC_API_KEY` to use real Claude (`claude-opus-4-8`).
 
+**No API key, but have a Claude Code subscription?** Use your existing Claude
+Code login instead — `make dev-claude-code` (or set `TUTOR_CLAUDE_CLI=1`). The
+server shells out to the local `claude` CLI in headless mode. Requires Claude
+Code installed and logged in; leave `ANTHROPIC_API_KEY` unset so the CLI uses
+your subscription. (Personal/internal use; for a shipped product the supported
+path is an API key.)
+
 ## Layout
 
 ```

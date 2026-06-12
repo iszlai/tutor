@@ -8,6 +8,7 @@ OLLAMA_NUM_PARALLEL    ?= 1   # single user — don't fragment GPU memory
 NUM_CTX                ?=     # empty = use Ollama's model default; override per target
 LLM_URL                ?= http://$(OLLAMA_HOST)/v1
 PORT                   ?= 8787
+CLAUDE_MODEL           ?= sonnet  # used by dev-claude-code: sonnet|opus|haiku
 
 export TUTOR_LOCAL_LLM_URL    := $(LLM_URL)
 export TUTOR_LOCAL_LLM_MODEL  := $(OLLAMA_MODEL)
@@ -16,7 +17,7 @@ export PORT                   := $(PORT)
 export OLLAMA_FLASH_ATTENTION := $(OLLAMA_FLASH_ATTENTION)
 export OLLAMA_NUM_PARALLEL    := $(OLLAMA_NUM_PARALLEL)
 
-.PHONY: dev llm llm-up install server web build clean stop help electron-dev electron-dist
+.PHONY: dev dev-claude-code llm llm-up install server web build clean stop help electron-dev electron-dist
 
 help: ## Show targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -35,6 +36,17 @@ dev: llm-up install ## Bring up LLM + API + web in browser (Ctrl-C stops all)
 
 dev-m1: ## gemma3:4b + ctx=2048 for 16 GB M1/M2 Macs
 	OLLAMA_MODEL=gemma3:4b NUM_CTX=2048 $(MAKE) dev
+
+dev-claude-code: install ## API + web using your Claude Code login (no API key, no Ollama)
+	@command -v claude >/dev/null 2>&1 || { \
+		echo "✗ claude CLI not found — install Claude Code and run 'claude' once to log in."; exit 1; }
+	@echo "→ tutor: starting Go API using your Claude Code subscription (model=$(CLAUDE_MODEL))"
+	@trap 'kill 0' INT TERM EXIT; \
+		( cd server && env -u ANTHROPIC_API_KEY TUTOR_CLAUDE_CLI=1 TUTOR_CLAUDE_CLI_MODEL=$(CLAUDE_MODEL) go run . ) & \
+		until curl -fsS http://localhost:$(PORT)/api/health >/dev/null 2>&1; do sleep 0.3; done; \
+		echo "→ tutor: API ready on :$(PORT), web on :5173 (provider=claude-code, model=$(CLAUDE_MODEL))"; \
+		( cd web && npm run dev ) & \
+		wait
 
 ## ---- Local LLM (Ollama) ------------------------------------------------------
 
