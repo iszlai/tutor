@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 )
@@ -33,6 +34,29 @@ func statusFor(err error) int {
 		return http.StatusBadRequest
 	}
 	return http.StatusBadGateway
+}
+
+// ---- Server-sent events ----------------------------------------------------
+
+func sseHeaders(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+}
+
+// sseToken returns an onToken callback that emits each chunk as a JSON-encoded
+// SSE data frame, matching what the frontend stream readers expect.
+func sseToken(w http.ResponseWriter, f http.Flusher) func(string) {
+	return func(token string) {
+		b, _ := json.Marshal(token)
+		fmt.Fprintf(w, "data: %s\n\n", b)
+		f.Flush()
+	}
+}
+
+func sseError(w http.ResponseWriter, f http.Flusher, err error) {
+	fmt.Fprintf(w, "data: [ERROR] %s\n\n", err.Error())
+	f.Flush()
 }
 
 func withCORS(next http.Handler) http.Handler {

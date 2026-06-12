@@ -22,6 +22,8 @@ func (a *API) routes() http.Handler {
 	mux.HandleFunc("GET /api/search", a.search)
 	mux.HandleFunc("POST /api/documents", a.createDoc)
 	mux.HandleFunc("POST /api/documents/stream", a.createDocStream)
+	mux.HandleFunc("POST /api/feynman", a.createFeynman)
+	mux.HandleFunc("POST /api/documents/{id}/feynman", a.feynmanRound)
 	mux.HandleFunc("GET /api/documents/{id}", a.getDoc)
 	mux.HandleFunc("DELETE /api/documents/{id}", a.deleteDoc)
 	mux.HandleFunc("POST /api/documents/{id}/threads", a.createThread)

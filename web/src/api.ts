@@ -17,6 +17,40 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+// streamSSE POSTs a JSON body and reads a Server-Sent Events stream, calling
+// onToken for each text chunk. Returns the payload after a [DONE] marker (e.g. a
+// new doc id), or "" if none.
+async function streamSSE(
+  path: string,
+  body: unknown,
+  onToken: (t: string) => void
+): Promise<string> {
+  const res = await fetch(`${BASE}/api${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const parts = buf.split("\n\n");
+    buf = parts.pop() ?? "";
+    for (const part of parts) {
+      if (!part.startsWith("data: ")) continue;
+      const data = part.slice(6).trim();
+      if (data.startsWith("[DONE]")) return data.slice(6).trim();
+      if (data.startsWith("[ERROR]")) throw new Error(data.slice(7).trim() || "stream error");
+      try { onToken(JSON.parse(data) as string); } catch { /* skip malformed */ }
+    }
+  }
+  throw new Error("stream closed without [DONE]");
+}
+
 export const api = {
   health: () => req<{ provider: string; model: string }>("/health"),
 
@@ -110,6 +144,19 @@ export const api = {
       }
     }
     throw new Error("stream closed without [DONE]");
+  },
+
+  // Feynman mode: teach a concept, get a supportive gap report (streamed).
+  createFeynmanStream: (topic: string, explanation: string, onToken: (t: string) => void) =>
+    streamSSE("/feynman", { topic, explanation }, onToken),
+
+  feynmanRoundStream: async (
+    docId: string,
+    explanation: string,
+    onToken: (t: string) => void
+  ): Promise<TutorDoc> => {
+    await streamSSE(`/documents/${docId}/feynman`, { explanation }, onToken);
+    return api.getDoc(docId);
   },
 
   action: (docId: string, threadId: string, type: string) =>

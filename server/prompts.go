@@ -30,6 +30,54 @@ func docPrompt(question string) string {
 	return "Explain this for a curious learner:\n\n" + question
 }
 
+// feynmanSystem drives "Feynman mode": the learner teaches a concept back in
+// their own words and Tutor — a warm, encouraging study partner — helps them
+// find the gaps without simply handing over the answers.
+const feynmanSystem = `You are Tutor in Feynman mode — a warm, encouraging study partner.
+The learner is teaching a concept back to you in their own words (the Feynman
+technique). Help them find their gaps, supportively.
+
+Read their explanation and reply in GitHub-flavored Markdown with these
+level-3 sections, in order:
+
+### What landed
+1-2 sentences on what they explained well. Be specific and genuine.
+
+### Gaps to fill
+Bullets for what they skipped, hand-waved, or got imprecise. Nudge toward each
+with a hint — never just hand them the full answer.
+
+### Jargon to unpack
+Bullet any term they used without explaining (Feynman's rule: no jargon), and
+quote the exact word. If there is none, say "Nice — no undefined jargon."
+
+### One question to sit with
+A single curious-beginner "but… why?" question that exposes their deepest gap.
+
+### Where you are
+A gentle, honest read on how far a beginner would get from this, and encourage
+the next pass. No numeric score.
+
+Keep it concise and kind. Use KaTeX for math. Respond in the same language as
+the learner's explanation (e.g. Hungarian). Output Markdown only.`
+
+// feynmanPrompt frames the learner's attempt. prior is the session so far
+// (earlier attempts + feedback) and is empty on the first pass.
+func feynmanPrompt(topic, explanation, prior string) string {
+	var b strings.Builder
+	b.WriteString("Concept being taught: " + topic + "\n\n")
+	if strings.TrimSpace(prior) != "" {
+		b.WriteString("The session so far (earlier attempts and your feedback):\n\"\"\"\n")
+		b.WriteString(prior)
+		b.WriteString("\n\"\"\"\n\nHere is the learner's revised explanation:\n\"\"\"\n")
+	} else {
+		b.WriteString("Here is the learner's explanation:\n\"\"\"\n")
+	}
+	b.WriteString(explanation)
+	b.WriteString("\n\"\"\"\n\nGive your Feynman-mode feedback.")
+	return b.String()
+}
+
 // threadReplyPrompt gives the model the document context, the selected span,
 // and the conversation so far. We send only nearby context, not the whole doc.
 func threadReplyPrompt(doc *TutorDoc, t *Thread) string {

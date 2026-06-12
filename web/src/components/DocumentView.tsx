@@ -63,7 +63,11 @@ export function DocumentView({
           const threads = threadsByBlock.get(b.blockId) ?? [];
           const blockLinks = inlineLinks.get(b.blockId) ?? [];
           return (
-            <div key={b.blockId} className="block" data-block-id={b.blockId}>
+            <div
+              key={b.blockId}
+              className={`block${b.meta?.feynman === "explanation" ? " block--feynman" : ""}`}
+              data-block-id={b.blockId}
+            >
               <Markdown>{b.markdown}</Markdown>
               {threads.map((t) => (
                 <span

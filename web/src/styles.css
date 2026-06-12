@@ -245,6 +245,72 @@ body {
   z-index: 59;
 }
 
+/* ---- Mode toggle (Learn / Teach) ------------------------------------------ */
+
+.mode-toggle {
+  display: inline-flex;
+  gap: 2px;
+  margin: 18px 0 0;
+  padding: 3px;
+  background: var(--color-surface-tint);
+  border: 1px solid var(--color-border-neutral);
+  border-radius: 999px;
+}
+
+.mode-tab {
+  border: none;
+  background: none;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-content-tertiary);
+  padding: 7px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.mode-tab--active {
+  background: var(--color-surface);
+  color: var(--color-brand-primary);
+  box-shadow: var(--shadow-card);
+}
+
+/* ---- Teach (Feynman) composer --------------------------------------------- */
+
+.teach {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0 8px;
+}
+
+.teach-topic,
+.teach-text {
+  font-family: var(--font-body);
+  font-size: 16px;
+  padding: 14px 16px;
+  border: 1.5px solid var(--color-border-strong);
+  border-radius: var(--radius-input);
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.teach-text {
+  min-height: 120px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.teach-topic:focus,
+.teach-text:focus {
+  border-color: var(--color-brand-accent);
+}
+
+.teach-submit {
+  align-self: flex-start;
+}
+
 /* ---- Prompt box ----------------------------------------------------------- */
 
 .prompt {
@@ -467,6 +533,32 @@ body {
   color: var(--color-content-secondary);
   background: rgba(79, 139, 255, 0.06);
   border-radius: 0 10px 10px 0;
+}
+
+/* Feynman: the learner's own explanation, set apart from the AI's feedback. */
+.block--feynman blockquote {
+  border-left-color: var(--color-brand-primary);
+  background: rgba(10, 20, 48, 0.05);
+  color: var(--color-content-primary);
+}
+
+.feynman-refine {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px dashed var(--color-border-strong);
+}
+
+.feynman-refine-title {
+  margin: 0 0 2px;
+  font-size: 16px;
+}
+
+.block--feynman-report {
+  border: 1px solid var(--color-border-neutral);
+  border-radius: 12px;
+  padding: 4px 16px;
+  margin-bottom: 16px;
+  background: var(--color-surface-tint);
 }
 
 .inline-link-chip {

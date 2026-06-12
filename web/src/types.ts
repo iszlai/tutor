@@ -65,6 +65,7 @@ export interface TutorDoc {
   schemaVersion: string;
   id: string;
   title: string;
+  mode?: string; // "" (normal) | "feynman"
   rootQuestion: string;
   createdAt: string;
   updatedAt: string;
