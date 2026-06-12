@@ -80,3 +80,10 @@ export interface DocSummary {
   title: string;
   updatedAt: string;
 }
+
+export interface SearchHit {
+  id: string;
+  title: string;
+  updatedAt: string;
+  snippet: string;
+}

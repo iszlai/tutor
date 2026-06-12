@@ -1,4 +1,4 @@
-import type { Anchor, DocSummary, TutorDoc } from "./types";
+import type { Anchor, DocSummary, SearchHit, TutorDoc } from "./types";
 
 // In dev (Vite proxy) BASE is empty so /api/... works unchanged.
 // In a packaged Electron build VITE_API_BASE is set to http://localhost:PORT.
@@ -21,6 +21,8 @@ export const api = {
   health: () => req<{ provider: string; model: string }>("/health"),
 
   listDocs: () => req<DocSummary[]>("/documents"),
+
+  search: (q: string) => req<SearchHit[]>(`/search?q=${encodeURIComponent(q)}`),
 
   getDoc: (id: string) => req<TutorDoc>(`/documents/${id}`),
 

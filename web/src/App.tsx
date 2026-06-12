@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { Anchor, DocSummary, TutorDoc } from "./types";
+import type { Anchor, DocSummary, SearchHit, TutorDoc } from "./types";
 import { api } from "./api";
 import { buildAnchor } from "./anchor";
 import { PromptBox } from "./components/PromptBox";
@@ -24,6 +24,8 @@ export default function App() {
   const [toolbar, setToolbar] = useState<Toolbar>(null);
   const [sheet, setSheet] = useState<Sheet>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<SearchHit[]>([]);
   const [importOpen, setImportOpen] = useState(false);
   const [importMd, setImportMd] = useState("");
   const [streamingReply, setStreamingReply] = useState("");
@@ -61,6 +63,24 @@ export default function App() {
     if (!historyOpen) api.listDocs().then(setRecents).catch(() => {});
     setHistoryOpen((o) => !o);
   }
+
+  // Reset the search box whenever the dropdown closes (any path).
+  useEffect(() => {
+    if (!historyOpen) setQuery("");
+  }, [historyOpen]);
+
+  // Debounced library search; empty query falls back to the recents list.
+  useEffect(() => {
+    const q = query.trim();
+    if (!q) {
+      setResults([]);
+      return;
+    }
+    const id = setTimeout(() => {
+      api.search(q).then(setResults).catch(() => setResults([]));
+    }, 200);
+    return () => clearTimeout(id);
+  }, [query]);
 
   async function deleteDoc(id: string) {
     if (!confirm("Delete this session? This cannot be undone.")) return;
@@ -243,7 +263,31 @@ export default function App() {
             </button>
             {historyOpen && (
               <div className="history-dropdown">
-                {recents.length === 0 ? (
+                <input
+                  className="history-search"
+                  placeholder="Search your library…"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  autoFocus
+                />
+                {query.trim() ? (
+                  results.length === 0 ? (
+                    <p className="history-empty">No matches</p>
+                  ) : (
+                    results.map((r) => (
+                      <a
+                        key={r.id}
+                        className="search-hit"
+                        onClick={() => loadDoc(r.id)}
+                      >
+                        <span className="search-hit-title">{r.title}</span>
+                        {r.snippet && (
+                          <span className="search-hit-snippet">{r.snippet}</span>
+                        )}
+                      </a>
+                    ))
+                  )
+                ) : recents.length === 0 ? (
                   <p className="history-empty">No sessions yet</p>
                 ) : (
                   recents.map((r) => (

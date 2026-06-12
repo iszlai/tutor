@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
+	"unicode/utf8"
 )
 
 // Store persists each document as a folder containing document.json (canonical)
@@ -85,6 +88,105 @@ func (s *Store) List() ([]DocSummary, error) {
 		out = append(out, DocSummary{ID: doc.ID, Title: doc.Title, UpdatedAt: doc.UpdatedAt})
 	}
 	return out, nil
+}
+
+type SearchHit struct {
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	UpdatedAt string `json:"updatedAt"`
+	Snippet   string `json:"snippet"`
+}
+
+// Search scans every document for all whitespace-separated query terms
+// (case-insensitive AND match) across the title, block content, and thread
+// messages, returning a contextual snippet per hit, newest first. It's a linear
+// scan over the file store — fine at this single-user scale.
+func (s *Store) Search(query string) ([]SearchHit, error) {
+	terms := strings.Fields(strings.ToLower(query))
+	if len(terms) == 0 {
+		return []SearchHit{}, nil
+	}
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		return nil, err
+	}
+	hits := []SearchHit{}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		doc, err := s.Load(e.Name())
+		if err != nil {
+			continue
+		}
+		var body strings.Builder
+		for _, b := range doc.Blocks {
+			body.WriteString(b.Markdown)
+			body.WriteByte('\n')
+		}
+		for _, t := range doc.Threads {
+			for _, m := range t.Messages {
+				body.WriteString(m.Text)
+				body.WriteByte('\n')
+			}
+		}
+		if !containsAll(strings.ToLower(doc.Title+"\n"+body.String()), terms) {
+			continue
+		}
+		hits = append(hits, SearchHit{
+			ID: doc.ID, Title: doc.Title, UpdatedAt: doc.UpdatedAt,
+			Snippet: snippet(body.String(), terms),
+		})
+	}
+	sort.Slice(hits, func(i, j int) bool { return hits[i].UpdatedAt > hits[j].UpdatedAt })
+	return hits, nil
+}
+
+func containsAll(hay string, terms []string) bool {
+	for _, t := range terms {
+		if !strings.Contains(hay, t) {
+			return false
+		}
+	}
+	return true
+}
+
+// snippet returns a one-line excerpt of body centered on the earliest matching
+// term, with ellipses where it was clipped.
+func snippet(body string, terms []string) string {
+	flat := strings.Join(strings.Fields(body), " ")
+	low := strings.ToLower(flat)
+	idx := -1
+	for _, t := range terms {
+		if i := strings.Index(low, t); i >= 0 && (idx < 0 || i < idx) {
+			idx = i
+		}
+	}
+	const radius = 80
+	if idx < 0 {
+		idx = 0
+	}
+	start, end := idx-radius, idx+radius
+	if start < 0 {
+		start = 0
+	}
+	if end > len(flat) {
+		end = len(flat)
+	}
+	for start > 0 && !utf8.RuneStart(flat[start]) {
+		start--
+	}
+	for end < len(flat) && !utf8.RuneStart(flat[end]) {
+		end++
+	}
+	out := flat[start:end]
+	if start > 0 {
+		out = "…" + out
+	}
+	if end < len(flat) {
+		out = out + "…"
+	}
+	return out
 }
 
 func (s *Store) mutate(id string, fn func(*TutorDoc) error) (*TutorDoc, error) {
