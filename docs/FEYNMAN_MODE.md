@@ -82,9 +82,27 @@ comments still use the Highlight API via `paintHighlights`.
 Annotations are wrapped marks (see above); tapping one opens a popover with the
 note + kind label. Tapping elsewhere dismisses. `web/vite build` clean.
 
-## Future adds (not built)
-- "Feynman an existing doc" entry (hide explanation, re-explain, grade vs source).
-- A "clarity progression" across passes.
+## Potential follow-ups (not built — backlog)
+
+### 1. "Feynman an existing doc"
+A second entry point: from a normal Tutor doc you've already explored, start a
+Feynman session *about that doc* — hide the AI's explanation, prompt you to
+re-explain it yourself, then grade your attempt against the original as the
+source of truth.
+- Likely a thread/doc action ("Feynman this") that seeds a feynman doc with a
+  `Links` "related" back to the source, and passes the source text as grading
+  context to `feynmanPrompt`/`annotateExplanation`.
+- Open question: reveal the source after the first pass, or keep it hidden until
+  you ask?
+
+### 2. Clarity progression across passes
+Show how the explanation improves over passes — e.g. a per-pass read (gaps
+remaining / jargon count, or a coach "clarity" line) and a small trend so the
+learner sees momentum.
+- Data is already there: each pass = one explanation block + its annotations;
+  count annotations per pass for a cheap first version.
+- Could surface as a header strip on the feynman doc, or a sparkline near the
+  legend.
 
 ## Resume notes
 - SSE frame format the frontend expects: `data: <json-token>\n\n`, terminal
