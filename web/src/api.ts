@@ -102,6 +102,17 @@ export const api = {
     throw new Error("stream closed without [DONE]");
   },
 
+  // Explain mode: paste a document, get a generated one-page explanation
+  // (streamed). Returns the new doc id after [DONE], like createDocStream.
+  explainStream: (source: string, onToken: (t: string) => void): Promise<string> =>
+    streamSSE("/explain/stream", { source, lang }, onToken),
+
+  explain: (source: string) =>
+    req<TutorDoc>("/explain", {
+      method: "POST",
+      body: JSON.stringify({ source, lang }),
+    }),
+
   importDoc: (markdown: string, title?: string) =>
     req<TutorDoc>("/documents", {
       method: "POST",
