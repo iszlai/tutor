@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -25,11 +26,27 @@ type LLM interface {
 }
 
 // NewLLM picks a provider by environment, in priority order:
-//  1. ANTHROPIC_API_KEY set            -> Claude (claude-opus-4-8)
-//  2. TUTOR_LOCAL_LLM_URL set          -> local OpenAI-compatible model
+//  1. TUTOR_CLAUDE_CLI set             -> Claude via the local `claude` CLI,
+//     using the user's Claude Code login (subscription OAuth — no API key)
+//  2. ANTHROPIC_API_KEY set            -> Claude (claude-opus-4-8)
+//  3. TUTOR_LOCAL_LLM_URL set          -> local OpenAI-compatible model
 //     (Ollama / llama.cpp / LM Studio; defaults to a Gemma 12B model)
-//  3. otherwise                        -> deterministic mock (zero config)
+//  4. otherwise                        -> deterministic mock (zero config)
 func NewLLM() LLM {
+	if cli := strings.TrimSpace(os.Getenv("TUTOR_CLAUDE_CLI")); cli != "" {
+		bin := "claude"
+		switch cli {
+		case "1", "true", "yes", "on":
+			// use `claude` from PATH
+		default:
+			bin = cli // an explicit path to the binary
+		}
+		llm := &claudeCodeLLM{bin: bin, model: envOr("TUTOR_CLAUDE_CLI_MODEL", "sonnet")}
+		if extra := strings.TrimSpace(os.Getenv("TUTOR_CLAUDE_CLI_ARGS")); extra != "" {
+			llm.args = strings.Fields(extra)
+		}
+		return llm
+	}
 	if key := strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")); key != "" {
 		return &claudeLLM{
 			client: anthropic.NewClient(option.WithAPIKey(key)),
@@ -91,6 +108,96 @@ func (c *claudeLLM) Stream(ctx context.Context, system, prompt string, onToken f
 		}
 	}
 	return strings.TrimSpace(b.String()), nil
+}
+
+// ---- Claude via the `claude` CLI (subscription, no API key) ----------------
+
+// claudeCodeLLM shells out to the local `claude` CLI in headless/print mode,
+// reusing the user's Claude Code login. This lets someone with a Claude Code
+// subscription (Pro/Max/Team) use real Claude without an Anthropic API key.
+//
+// Note: do NOT set ANTHROPIC_API_KEY in the environment if you want the
+// subscription used — the CLI prefers an API key when one is present.
+type claudeCodeLLM struct {
+	bin   string
+	model string
+	args  []string // optional extra CLI flags (TUTOR_CLAUDE_CLI_ARGS)
+}
+
+func (c *claudeCodeLLM) Name() string  { return "claude-code" }
+func (c *claudeCodeLLM) Model() string { return c.model }
+
+func (c *claudeCodeLLM) Generate(ctx context.Context, system, prompt string) (string, error) {
+	return c.Stream(ctx, system, prompt, func(string) {})
+}
+
+func (c *claudeCodeLLM) Stream(ctx context.Context, system, prompt string, onToken func(string)) (string, error) {
+	args := append([]string{
+		"-p",
+		"--output-format", "stream-json",
+		"--verbose",
+		"--include-partial-messages",
+		"--model", c.model,
+		"--system-prompt", system,
+	}, c.args...)
+
+	cmd := exec.CommandContext(ctx, c.bin, args...)
+	cmd.Stdin = strings.NewReader(prompt) // pass the prompt on stdin (no arg-length limits)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", err
+	}
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Errorf("claude cli: %w", err)
+	}
+
+	var full strings.Builder
+	var resultText string
+	var apiErr error
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024) // init events can be large
+	for scanner.Scan() {
+		var ev struct {
+			Type  string `json:"type"`
+			Event struct {
+				Delta struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				} `json:"delta"`
+			} `json:"event"`
+			IsError bool   `json:"is_error"`
+			Result  string `json:"result"`
+		}
+		if json.Unmarshal(scanner.Bytes(), &ev) != nil {
+			continue
+		}
+		switch ev.Type {
+		case "stream_event":
+			if ev.Event.Delta.Type == "text_delta" && ev.Event.Delta.Text != "" {
+				full.WriteString(ev.Event.Delta.Text)
+				onToken(ev.Event.Delta.Text)
+			}
+		case "result":
+			resultText = ev.Result
+			if ev.IsError {
+				apiErr = fmt.Errorf("claude cli: %s", ev.Result)
+			}
+		}
+	}
+	waitErr := cmd.Wait()
+	if apiErr != nil {
+		return "", apiErr
+	}
+	if waitErr != nil {
+		return "", fmt.Errorf("claude cli: %v: %s", waitErr, strings.TrimSpace(stderr.String()))
+	}
+	out := strings.TrimSpace(full.String())
+	if out == "" {
+		out = strings.TrimSpace(resultText) // fall back if no deltas streamed
+	}
+	return out, nil
 }
 
 // ---- Local (OpenAI-compatible) ---------------------------------------------

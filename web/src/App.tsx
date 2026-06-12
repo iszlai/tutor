@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import type { Anchor, DocSummary, TutorDoc } from "./types";
+import type { Anchor, DocSummary, SearchHit, TutorDoc } from "./types";
 import { api } from "./api";
 import { buildAnchor } from "./anchor";
 import { PromptBox } from "./components/PromptBox";
+import { TeachBox } from "./components/TeachBox";
 import { DocumentView } from "./components/DocumentView";
 import { Markdown } from "./components/Markdown";
 import { SelectionToolbar } from "./components/SelectionToolbar";
@@ -24,10 +25,14 @@ export default function App() {
   const [toolbar, setToolbar] = useState<Toolbar>(null);
   const [sheet, setSheet] = useState<Sheet>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<SearchHit[]>([]);
   const [importOpen, setImportOpen] = useState(false);
   const [importMd, setImportMd] = useState("");
   const [streamingReply, setStreamingReply] = useState("");
   const [streamingDoc, setStreamingDoc] = useState<{ question: string; text: string } | null>(null);
+  const [mode, setMode] = useState<"learn" | "teach">("learn");
+  const [streamingRound, setStreamingRound] = useState<string | null>(null);
 
   // --- initial load -------------------------------------------------------
   useEffect(() => {
@@ -61,6 +66,24 @@ export default function App() {
     if (!historyOpen) api.listDocs().then(setRecents).catch(() => {});
     setHistoryOpen((o) => !o);
   }
+
+  // Reset the search box whenever the dropdown closes (any path).
+  useEffect(() => {
+    if (!historyOpen) setQuery("");
+  }, [historyOpen]);
+
+  // Debounced library search; empty query falls back to the recents list.
+  useEffect(() => {
+    const q = query.trim();
+    if (!q) {
+      setResults([]);
+      return;
+    }
+    const id = setTimeout(() => {
+      api.search(q).then(setResults).catch(() => setResults([]));
+    }, 200);
+    return () => clearTimeout(id);
+  }, [query]);
 
   async function deleteDoc(id: string) {
     if (!confirm("Delete this session? This cannot be undone.")) return;
@@ -158,6 +181,47 @@ export default function App() {
     }
   }
 
+  // Feynman mode: start a session by teaching a concept.
+  async function teach(topic: string, explanation: string) {
+    setError("");
+    setBusy(true);
+    setStreamingDoc({ question: "Feynman: " + topic, text: "" });
+    try {
+      const docId = await api.createFeynmanStream(topic, explanation, (token) => {
+        setStreamingDoc((prev) => (prev ? { ...prev, text: prev.text + token } : null));
+      });
+      setStreamingDoc(null);
+      await loadDoc(docId);
+      api.listDocs().then(setRecents).catch(() => {});
+    } catch (e) {
+      setError(String(e));
+      setStreamingDoc(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Feynman mode: explain again to get a fresh gap report appended.
+  async function refine(_topic: string, explanation: string) {
+    if (!doc) return;
+    setError("");
+    setBusy(true);
+    setStreamingRound("");
+    try {
+      const updated = await api.feynmanRoundStream(doc.id, explanation, (token) => {
+        setStreamingRound((prev) => (prev ?? "") + token);
+      });
+      setStreamingRound(null);
+      setDoc(updated);
+      location.hash = updated.id;
+    } catch (e) {
+      setError(String(e));
+      setStreamingRound(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function startComment() {
     if (!toolbar) return;
     setSheet({ mode: "new", anchor: toolbar.anchor });
@@ -243,7 +307,31 @@ export default function App() {
             </button>
             {historyOpen && (
               <div className="history-dropdown">
-                {recents.length === 0 ? (
+                <input
+                  className="history-search"
+                  placeholder="Search your library…"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  autoFocus
+                />
+                {query.trim() ? (
+                  results.length === 0 ? (
+                    <p className="history-empty">No matches</p>
+                  ) : (
+                    results.map((r) => (
+                      <a
+                        key={r.id}
+                        className="search-hit"
+                        onClick={() => loadDoc(r.id)}
+                      >
+                        <span className="search-hit-title">{r.title}</span>
+                        {r.snippet && (
+                          <span className="search-hit-snippet">{r.snippet}</span>
+                        )}
+                      </a>
+                    ))
+                  )
+                ) : recents.length === 0 ? (
                   <p className="history-empty">No sessions yet</p>
                 ) : (
                   recents.map((r) => (
@@ -269,46 +357,84 @@ export default function App() {
       </div>
       {historyOpen && <div className="history-scrim" onClick={() => setHistoryOpen(false)} />}
 
-      <PromptBox
-        onSubmit={ask}
-        busy={busy && !doc}
-        placeholder="Ask anything — e.g. how do you calculate acceleration?"
-      />
-
-      <div className="import-toggle">
+      <div className="mode-toggle" role="tablist" aria-label="Mode">
         <button
-          className="import-toggle-btn"
-          onClick={() => setImportOpen((o) => !o)}
+          className={`mode-tab${mode === "learn" ? " mode-tab--active" : ""}`}
+          onClick={() => setMode("learn")}
         >
-          {importOpen ? "▲ Cancel" : "↑ Paste a .md file instead"}
+          Learn
+        </button>
+        <button
+          className={`mode-tab${mode === "teach" ? " mode-tab--active" : ""}`}
+          onClick={() => setMode("teach")}
+          title="Feynman technique: explain it yourself, find your gaps"
+        >
+          Teach (Feynman)
         </button>
       </div>
 
-      {importOpen && (
-        <div className="import-form">
-          <textarea
-            className="import-textarea"
-            placeholder="Paste your markdown here…"
-            value={importMd}
-            onChange={(e) => setImportMd(e.target.value)}
-            autoFocus
-          />
-          <button
-            className="btn btn-primary"
-            onClick={importDoc}
-            disabled={busy || !importMd.trim()}
-          >
-            {busy ? <span className="spinner" /> : "Import"}
-          </button>
-        </div>
+      {mode === "learn" ? (
+        <PromptBox
+          onSubmit={ask}
+          busy={busy && !doc}
+          placeholder="Ask anything — e.g. how do you calculate acceleration?"
+        />
+      ) : (
+        <TeachBox
+          showTopic
+          submitLabel="Get feedback"
+          busy={busy && !doc}
+          onSubmit={teach}
+        />
       )}
 
-      {!doc && (
+      {mode === "teach" && (
         <p className="hint">
-          Get a one-page explanation, then select any word, formula, or sentence to ask
-          a follow-up. The AI replies in a thread you can turn into linked pages,
-          rewrites, summaries, visuals, or exercises.
+          Feynman mode: name a concept and explain it in your own words. Tutor
+          plays a friendly student, points out gaps and undefined jargon, and
+          asks the one question that exposes what's missing — then you explain
+          again.
         </p>
+      )}
+
+      {mode === "learn" && (
+        <>
+          <div className="import-toggle">
+            <button
+              className="import-toggle-btn"
+              onClick={() => setImportOpen((o) => !o)}
+            >
+              {importOpen ? "▲ Cancel" : "↑ Paste a .md file instead"}
+            </button>
+          </div>
+
+          {importOpen && (
+            <div className="import-form">
+              <textarea
+                className="import-textarea"
+                placeholder="Paste your markdown here…"
+                value={importMd}
+                onChange={(e) => setImportMd(e.target.value)}
+                autoFocus
+              />
+              <button
+                className="btn btn-primary"
+                onClick={importDoc}
+                disabled={busy || !importMd.trim()}
+              >
+                {busy ? <span className="spinner" /> : "Import"}
+              </button>
+            </div>
+          )}
+
+          {!doc && (
+            <p className="hint">
+              Get a one-page explanation, then select any word, formula, or sentence to ask
+              a follow-up. The AI replies in a thread you can turn into linked pages,
+              rewrites, summaries, visuals, or exercises.
+            </p>
+          )}
+        </>
       )}
 
       {error && <div className="error">{error}</div>}
@@ -333,12 +459,44 @@ export default function App() {
         </div>
       )}
 
+      {!streamingDoc && doc?.mode === "feynman" && (
+        <div className="feynman-legend">
+          <span className="fey-chip fey-chip--gap">vague / missing</span>
+          <span className="fey-chip fey-chip--jargon">undefined jargon</span>
+          <span className="fey-chip fey-chip--shaky">looks shaky</span>
+          <span className="feynman-legend-note">
+            highlighted in your own words — tap one to see why
+          </span>
+        </div>
+      )}
+
       {!streamingDoc && doc && (
         <DocumentView
           doc={doc}
           onOpenThread={(threadId) => setSheet({ mode: "thread", threadId })}
           onNavigate={loadDoc}
         />
+      )}
+
+      {!streamingDoc && doc?.mode === "feynman" && (
+        <div className="feynman-refine">
+          {streamingRound !== null && (
+            <div className="block block--feynman-report">
+              <Markdown>{streamingRound || "…"}</Markdown>
+            </div>
+          )}
+          <h3 className="feynman-refine-title">Explain it again</h3>
+          <p className="hint">
+            Fill the gaps and have another go — your explanation gets added below
+            with fresh feedback.
+          </p>
+          <TeachBox
+            showTopic={false}
+            submitLabel="Explain again"
+            busy={busy}
+            onSubmit={refine}
+          />
+        </div>
       )}
 
       {toolbar && !sheet && (

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 )
@@ -33,6 +34,29 @@ func statusFor(err error) int {
 		return http.StatusBadRequest
 	}
 	return http.StatusBadGateway
+}
+
+// ---- Server-sent events ----------------------------------------------------
+
+func sseHeaders(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+}
+
+// sseToken returns an onToken callback that emits each chunk as a JSON-encoded
+// SSE data frame, matching what the frontend stream readers expect.
+func sseToken(w http.ResponseWriter, f http.Flusher) func(string) {
+	return func(token string) {
+		b, _ := json.Marshal(token)
+		fmt.Fprintf(w, "data: %s\n\n", b)
+		f.Flush()
+	}
+}
+
+func sseError(w http.ResponseWriter, f http.Flusher, err error) {
+	fmt.Fprintf(w, "data: [ERROR] %s\n\n", err.Error())
+	f.Flush()
 }
 
 func withCORS(next http.Handler) http.Handler {
@@ -70,4 +94,27 @@ func deriveTitle(q string) string {
 		return "Untitled"
 	}
 	return strings.ToUpper(q[:1]) + q[1:]
+}
+
+// normalizeMermaid coerces an LLM's diagram output into a single, cleanly
+// fenced ```mermaid block. Models (especially smaller local ones) often wrap
+// the diagram in prose or use a bare/mislabeled fence, which the document
+// renderer won't draw. We pull out the diagram body and re-fence it.
+func normalizeMermaid(out string) string {
+	body := strings.TrimSpace(out)
+	// If the output contains a fenced block, use its contents.
+	if i := strings.Index(body, "```"); i >= 0 {
+		rest := body[i+3:]
+		// Drop the rest of the opening fence line (an optional language label).
+		if nl := strings.IndexByte(rest, '\n'); nl >= 0 {
+			rest = rest[nl+1:]
+		} else {
+			rest = ""
+		}
+		if j := strings.Index(rest, "```"); j >= 0 {
+			rest = rest[:j]
+		}
+		body = strings.TrimSpace(rest)
+	}
+	return "```mermaid\n" + body + "\n```"
 }

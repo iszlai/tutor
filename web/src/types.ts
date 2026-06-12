@@ -65,6 +65,7 @@ export interface TutorDoc {
   schemaVersion: string;
   id: string;
   title: string;
+  mode?: string; // "" (normal) | "feynman"
   rootQuestion: string;
   createdAt: string;
   updatedAt: string;
@@ -79,4 +80,17 @@ export interface DocSummary {
   id: string;
   title: string;
   updatedAt: string;
+}
+
+export interface Annotation {
+  quote: string;
+  kind: "gap" | "jargon" | "shaky";
+  note: string;
+}
+
+export interface SearchHit {
+  id: string;
+  title: string;
+  updatedAt: string;
+  snippet: string;
 }

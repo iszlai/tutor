@@ -75,6 +75,7 @@ type TutorDoc struct {
 	SchemaVersion string     `json:"schemaVersion"`
 	ID            string     `json:"id"`
 	Title         string     `json:"title"`
+	Mode          string     `json:"mode,omitempty"` // "" (normal) | "feynman"
 	RootQuestion  string     `json:"rootQuestion"`
 	CreatedAt     string     `json:"createdAt"`
 	UpdatedAt     string     `json:"updatedAt"`

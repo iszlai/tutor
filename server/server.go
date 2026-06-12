@@ -19,8 +19,11 @@ func (a *API) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", a.health)
 	mux.HandleFunc("GET /api/documents", a.listDocs)
+	mux.HandleFunc("GET /api/search", a.search)
 	mux.HandleFunc("POST /api/documents", a.createDoc)
 	mux.HandleFunc("POST /api/documents/stream", a.createDocStream)
+	mux.HandleFunc("POST /api/feynman", a.createFeynman)
+	mux.HandleFunc("POST /api/documents/{id}/feynman", a.feynmanRound)
 	mux.HandleFunc("GET /api/documents/{id}", a.getDoc)
 	mux.HandleFunc("DELETE /api/documents/{id}", a.deleteDoc)
 	mux.HandleFunc("POST /api/documents/{id}/threads", a.createThread)
@@ -50,6 +53,15 @@ func (a *API) listDocs(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, docs)
+}
+
+func (a *API) search(w http.ResponseWriter, r *http.Request) {
+	hits, err := a.store.Search(r.URL.Query().Get("q"))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, hits)
 }
 
 func (a *API) getDoc(w http.ResponseWriter, r *http.Request) {

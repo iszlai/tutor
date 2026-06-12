@@ -131,3 +131,46 @@ export function paintHighlights(
   cssHighlights.set("tutor-comment", new HighlightCtor(...ranges));
   return resolved;
 }
+
+// Wrap Feynman-flagged phrases in <mark> elements so they can be tapped for the
+// note. Each quote is resolved within its block via the anchor machinery, then
+// wrapped (color-coded by kind, note carried on data-note). Unlike the CSS
+// Highlight API these are real elements, so they support tap interaction.
+// Idempotent: a block already containing marks is left alone (annotations are
+// immutable per block, and React reuses the DOM across repaints).
+export function markAnnotations(
+  container: HTMLElement,
+  items: { blockId: string; quote: string; kind: string; note: string }[]
+): void {
+  const byBlock = new Map<string, typeof items>();
+  for (const it of items) {
+    const list = byBlock.get(it.blockId) ?? [];
+    list.push(it);
+    byBlock.set(it.blockId, list);
+  }
+  for (const [blockId, list] of byBlock) {
+    const block = container.querySelector<HTMLElement>(`[data-block-id="${blockId}"]`);
+    if (!block || block.querySelector(".fey-mark")) continue;
+    for (const it of list) {
+      const range = resolveRange(block, {
+        startBlockId: blockId,
+        endBlockId: blockId,
+        startOffset: 0,
+        endOffset: 0,
+        exactQuote: it.quote,
+        prefix: "",
+        suffix: "",
+      });
+      if (!range) continue;
+      const mark = document.createElement("mark");
+      mark.className = `fey-mark fey-mark--${it.kind}`;
+      mark.dataset.note = it.note;
+      mark.dataset.kind = it.kind;
+      try {
+        range.surroundContents(mark); // throws if the quote spans nodes — skip
+      } catch {
+        /* cross-node phrase; leave it unmarked */
+      }
+    }
+  }
+}
