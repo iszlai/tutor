@@ -71,3 +71,26 @@ func deriveTitle(q string) string {
 	}
 	return strings.ToUpper(q[:1]) + q[1:]
 }
+
+// normalizeMermaid coerces an LLM's diagram output into a single, cleanly
+// fenced ```mermaid block. Models (especially smaller local ones) often wrap
+// the diagram in prose or use a bare/mislabeled fence, which the document
+// renderer won't draw. We pull out the diagram body and re-fence it.
+func normalizeMermaid(out string) string {
+	body := strings.TrimSpace(out)
+	// If the output contains a fenced block, use its contents.
+	if i := strings.Index(body, "```"); i >= 0 {
+		rest := body[i+3:]
+		// Drop the rest of the opening fence line (an optional language label).
+		if nl := strings.IndexByte(rest, '\n'); nl >= 0 {
+			rest = rest[nl+1:]
+		} else {
+			rest = ""
+		}
+		if j := strings.Index(rest, "```"); j >= 0 {
+			rest = rest[:j]
+		}
+		body = strings.TrimSpace(rest)
+	}
+	return "```mermaid\n" + body + "\n```"
+}

@@ -110,12 +110,13 @@ func (a *API) rewriteBlock(ctx context.Context, doc *TutorDoc, t *Thread) error 
 
 func (a *API) generateVisual(ctx context.Context, doc *TutorDoc, t *Thread) error {
 	prompt := "Produce a Mermaid diagram that helps explain \"" + t.Anchor.ExactQuote +
-		"\". Output only a single ```mermaid fenced code block."
+		"\". Output only a single ```mermaid fenced code block — valid Mermaid syntax, " +
+		"no prose before or after."
 	out, err := a.llm.Generate(ctx, replySystem, prompt)
 	if err != nil {
 		return err
 	}
-	blk := Block{BlockID: newID("blk"), Type: "code", Markdown: out, Meta: map[string]interface{}{"lang": "mermaid"}}
+	blk := Block{BlockID: newID("blk"), Type: "code", Markdown: normalizeMermaid(out), Meta: map[string]interface{}{"lang": "mermaid"}}
 	insertAfter(doc, t.Anchor.StartBlockID, blk)
 	doc.Revisions = append(doc.Revisions, Revision{
 		RevisionID: newID("rev"), At: nowISO(), Kind: "blockInsert",
