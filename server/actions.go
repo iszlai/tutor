@@ -13,9 +13,9 @@ var (
 
 // runAction evolves the document from a thread's discussion. Each action records
 // a revision and/or a link so the change is reconstructable. See docs/PLAN.md §6.
-func (a *API) runAction(ctx context.Context, docID, threadID, action string) (*TutorDoc, error) {
+func (a *API) runAction(ctx context.Context, docID, threadID, action, lang string) (*TutorDoc, error) {
 	if action == "createLinkedPage" {
-		return a.createLinkedPage(ctx, docID, threadID)
+		return a.createLinkedPage(ctx, docID, threadID, lang)
 	}
 
 	return a.store.mutate(docID, func(doc *TutorDoc) error {
@@ -27,13 +27,13 @@ func (a *API) runAction(ctx context.Context, docID, threadID, action string) (*T
 		case "insert":
 			return a.insertReply(doc, t)
 		case "insertSummary":
-			return a.insertSummary(ctx, doc, t)
+			return a.insertSummary(ctx, doc, t, lang)
 		case "rewrite":
-			return a.rewriteBlock(ctx, doc, t)
+			return a.rewriteBlock(ctx, doc, t, lang)
 		case "generateVisual":
-			return a.generateVisual(ctx, doc, t)
+			return a.generateVisual(ctx, doc, t, lang)
 		case "generateExercise":
-			return a.generateExercise(ctx, doc, t)
+			return a.generateExercise(ctx, doc, t, lang)
 		default:
 			return errBadAction
 		}
@@ -67,8 +67,8 @@ func (a *API) insertReply(doc *TutorDoc, t *Thread) error {
 	return nil
 }
 
-func (a *API) insertSummary(ctx context.Context, doc *TutorDoc, t *Thread) error {
-	summary, err := a.llm.Generate(ctx, replySystem, summaryPrompt(t))
+func (a *API) insertSummary(ctx context.Context, doc *TutorDoc, t *Thread, lang string) error {
+	summary, err := a.llm.Generate(ctx, withLang(replySystem, lang), summaryPrompt(t))
 	if err != nil {
 		return err
 	}
@@ -84,7 +84,7 @@ func (a *API) insertSummary(ctx context.Context, doc *TutorDoc, t *Thread) error
 	return nil
 }
 
-func (a *API) rewriteBlock(ctx context.Context, doc *TutorDoc, t *Thread) error {
+func (a *API) rewriteBlock(ctx context.Context, doc *TutorDoc, t *Thread, lang string) error {
 	blk := findBlock(doc, t.Anchor.StartBlockID)
 	if blk == nil {
 		return errNotFound
@@ -92,7 +92,7 @@ func (a *API) rewriteBlock(ctx context.Context, doc *TutorDoc, t *Thread) error 
 	prompt := "Rewrite the following passage to be clearer and simpler, " +
 		"incorporating the discussion below. Output Markdown only.\n\nPassage:\n\"\"\"\n" +
 		blk.Markdown + "\n\"\"\"\n\n" + summaryPrompt(t)
-	rewritten, err := a.llm.Generate(ctx, replySystem, prompt)
+	rewritten, err := a.llm.Generate(ctx, withLang(replySystem, lang), prompt)
 	if err != nil {
 		return err
 	}
@@ -108,11 +108,12 @@ func (a *API) rewriteBlock(ctx context.Context, doc *TutorDoc, t *Thread) error 
 	return nil
 }
 
-func (a *API) generateVisual(ctx context.Context, doc *TutorDoc, t *Thread) error {
+func (a *API) generateVisual(ctx context.Context, doc *TutorDoc, t *Thread, lang string) error {
 	prompt := "Produce a Mermaid diagram that helps explain \"" + t.Anchor.ExactQuote +
-		"\". Output only a single ```mermaid fenced code block — valid Mermaid syntax, " +
+		"\". Any text labels in the diagram must be written in the response language. " +
+		"Output only a single ```mermaid fenced code block — valid Mermaid syntax, " +
 		"no prose before or after."
-	out, err := a.llm.Generate(ctx, replySystem, prompt)
+	out, err := a.llm.Generate(ctx, withLang(replySystem, lang), prompt)
 	if err != nil {
 		return err
 	}
@@ -128,10 +129,10 @@ func (a *API) generateVisual(ctx context.Context, doc *TutorDoc, t *Thread) erro
 	return nil
 }
 
-func (a *API) generateExercise(ctx context.Context, doc *TutorDoc, t *Thread) error {
+func (a *API) generateExercise(ctx context.Context, doc *TutorDoc, t *Thread, lang string) error {
 	prompt := "Create one short worked example and one practice question about \"" +
 		t.Anchor.ExactQuote + "\". Use a level-3 heading 'Practice'. Output Markdown only."
-	out, err := a.llm.Generate(ctx, replySystem, prompt)
+	out, err := a.llm.Generate(ctx, withLang(replySystem, lang), prompt)
 	if err != nil {
 		return err
 	}
@@ -150,7 +151,7 @@ func (a *API) generateExercise(ctx context.Context, doc *TutorDoc, t *Thread) er
 // createLinkedPage promotes a thread's reply into a child document.
 // It uses the last assistant message as content (no LLM call) and returns
 // the child so the frontend navigates there immediately.
-func (a *API) createLinkedPage(ctx context.Context, docID, threadID string) (*TutorDoc, error) {
+func (a *API) createLinkedPage(ctx context.Context, docID, threadID, lang string) (*TutorDoc, error) {
 	parent, err := a.store.Load(docID)
 	if err != nil {
 		return nil, errNotFound
@@ -164,7 +165,7 @@ func (a *API) createLinkedPage(ctx context.Context, docID, threadID string) (*Tu
 	md := lastAssistantMessage(t)
 	if md == "" {
 		// Thread has no reply yet; generate one as a fallback.
-		md, err = a.llm.Generate(ctx, docSystem, linkedPagePrompt(t))
+		md, err = a.llm.Generate(ctx, withLang(docSystem, lang), linkedPagePrompt(t))
 		if err != nil {
 			return nil, err
 		}

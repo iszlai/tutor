@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Anchor, DocSummary, SearchHit, TutorDoc } from "./types";
 import { api } from "./api";
+import { type Lang, getStoredLang, storeLang, strings } from "./i18n";
 import { buildAnchor } from "./anchor";
 import { PromptBox } from "./components/PromptBox";
 import { TeachBox } from "./components/TeachBox";
@@ -33,6 +34,14 @@ export default function App() {
   const [streamingDoc, setStreamingDoc] = useState<{ question: string; text: string } | null>(null);
   const [mode, setMode] = useState<"learn" | "teach">("learn");
   const [streamingRound, setStreamingRound] = useState<string | null>(null);
+  const [lang, setLang] = useState<Lang>(getStoredLang);
+  const t = strings(lang);
+
+  // Keep the API client's language in sync; persist the choice across reloads.
+  useEffect(() => {
+    api.setLang(lang);
+    storeLang(lang);
+  }, [lang]);
 
   // --- initial load -------------------------------------------------------
   useEffect(() => {
@@ -86,7 +95,7 @@ export default function App() {
   }, [query]);
 
   async function deleteDoc(id: string) {
-    if (!confirm("Delete this session? This cannot be undone.")) return;
+    if (!confirm(t.deleteConfirm)) return;
     await api.deleteDoc(id);
     if (doc?.id === id) newSession();
     api.listDocs().then(setRecents).catch(() => {});
@@ -287,36 +296,50 @@ export default function App() {
           Tutor
         </button>
         <div className="topbar-actions">
+          <div className="lang-toggle" role="group" aria-label="Language">
+            <button
+              className={`lang-btn${lang === "en" ? " lang-btn--active" : ""}`}
+              onClick={() => setLang("en")}
+            >
+              EN
+            </button>
+            <button
+              className={`lang-btn${lang === "hu" ? " lang-btn--active" : ""}`}
+              onClick={() => setLang("hu")}
+            >
+              HU
+            </button>
+          </div>
           {doc && (
             <>
               <button className="btn btn-ghost btn-sm" onClick={newSession}>
-                + New
+                {t.new}
               </button>
               <button
                 className="btn btn-ghost btn-sm btn-danger"
                 onClick={() => deleteDoc(doc.id)}
-                title="Delete this session"
+                title={t.deleteTitle}
               >
-                Delete
+                {t.delete}
               </button>
             </>
           )}
           <div className="history-wrap">
             <button className="btn btn-ghost btn-sm" onClick={toggleHistory}>
-              History {historyOpen ? "▲" : "▼"}
+              {t.history} {historyOpen ? "▲" : "▼"}
             </button>
             {historyOpen && (
               <div className="history-dropdown">
                 <input
                   className="history-search"
-                  placeholder="Search your library…"
+                  placeholder={t.searchLibrary}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   autoFocus
                 />
                 {query.trim() ? (
                   results.length === 0 ? (
-                    <p className="history-empty">No matches</p>
+                    <p className="history-empty">{t.noMatches}</p>
                   ) : (
                     results.map((r) => (
                       <a
@@ -332,7 +355,7 @@ export default function App() {
                     ))
                   )
                 ) : recents.length === 0 ? (
-                  <p className="history-empty">No sessions yet</p>
+                  <p className="history-empty">{t.noSessions}</p>
                 ) : (
                   recents.map((r) => (
                     <div key={r.id} className="history-item-row">
@@ -362,14 +385,14 @@ export default function App() {
           className={`mode-tab${mode === "learn" ? " mode-tab--active" : ""}`}
           onClick={() => setMode("learn")}
         >
-          Learn
+          {t.learn}
         </button>
         <button
           className={`mode-tab${mode === "teach" ? " mode-tab--active" : ""}`}
           onClick={() => setMode("teach")}
-          title="Feynman technique: explain it yourself, find your gaps"
+          title={t.teachTitle}
         >
-          Teach (Feynman)
+          {t.teach}
         </button>
       </div>
 
@@ -377,25 +400,21 @@ export default function App() {
         <PromptBox
           onSubmit={ask}
           busy={busy && !doc}
-          placeholder="Ask anything — e.g. how do you calculate acceleration?"
+          placeholder={t.askPlaceholder}
+          submitLabel={t.ask}
         />
       ) : (
         <TeachBox
           showTopic
-          submitLabel="Get feedback"
+          submitLabel={t.getFeedback}
           busy={busy && !doc}
           onSubmit={teach}
+          topicPlaceholder={t.topicPlaceholder}
+          explainPlaceholder={t.explainPlaceholder}
         />
       )}
 
-      {mode === "teach" && (
-        <p className="hint">
-          Feynman mode: name a concept and explain it in your own words. Tutor
-          plays a friendly student, points out gaps and undefined jargon, and
-          asks the one question that exposes what's missing — then you explain
-          again.
-        </p>
-      )}
+      {mode === "teach" && <p className="hint">{t.feynmanIntro}</p>}
 
       {mode === "learn" && (
         <>
@@ -404,7 +423,7 @@ export default function App() {
               className="import-toggle-btn"
               onClick={() => setImportOpen((o) => !o)}
             >
-              {importOpen ? "▲ Cancel" : "↑ Paste a .md file instead"}
+              {importOpen ? t.pasteCancel : t.pasteOpen}
             </button>
           </div>
 
@@ -412,7 +431,7 @@ export default function App() {
             <div className="import-form">
               <textarea
                 className="import-textarea"
-                placeholder="Paste your markdown here…"
+                placeholder={t.pastePlaceholder}
                 value={importMd}
                 onChange={(e) => setImportMd(e.target.value)}
                 autoFocus
@@ -422,18 +441,12 @@ export default function App() {
                 onClick={importDoc}
                 disabled={busy || !importMd.trim()}
               >
-                {busy ? <span className="spinner" /> : "Import"}
+                {busy ? <span className="spinner" /> : t.import}
               </button>
             </div>
           )}
 
-          {!doc && (
-            <p className="hint">
-              Get a one-page explanation, then select any word, formula, or sentence to ask
-              a follow-up. The AI replies in a thread you can turn into linked pages,
-              rewrites, summaries, visuals, or exercises.
-            </p>
-          )}
+          {!doc && <p className="hint">{t.learnIntro}</p>}
         </>
       )}
 
@@ -441,7 +454,7 @@ export default function App() {
 
       {!doc && recents.length > 0 && (
         <div className="recents">
-          <h3>Recent</h3>
+          <h3>{t.recent}</h3>
           {recents.map((r) => (
             <a key={r.id} onClick={() => loadDoc(r.id)} href={`#${r.id}`}>
               {r.title}
@@ -461,12 +474,10 @@ export default function App() {
 
       {!streamingDoc && doc?.mode === "feynman" && (
         <div className="feynman-legend">
-          <span className="fey-chip fey-chip--gap">vague / missing</span>
-          <span className="fey-chip fey-chip--jargon">undefined jargon</span>
-          <span className="fey-chip fey-chip--shaky">looks shaky</span>
-          <span className="feynman-legend-note">
-            highlighted in your own words — tap one to see why
-          </span>
+          <span className="fey-chip fey-chip--gap">{t.feyGap}</span>
+          <span className="fey-chip fey-chip--jargon">{t.feyJargon}</span>
+          <span className="fey-chip fey-chip--shaky">{t.feyShaky}</span>
+          <span className="feynman-legend-note">{t.feyLegendNote}</span>
         </div>
       )}
 
@@ -485,22 +496,21 @@ export default function App() {
               <Markdown>{streamingRound || "…"}</Markdown>
             </div>
           )}
-          <h3 className="feynman-refine-title">Explain it again</h3>
-          <p className="hint">
-            Fill the gaps and have another go — your explanation gets added below
-            with fresh feedback.
-          </p>
+          <h3 className="feynman-refine-title">{t.explainAgainTitle}</h3>
+          <p className="hint">{t.explainAgainHint}</p>
           <TeachBox
             showTopic={false}
-            submitLabel="Explain again"
+            submitLabel={t.explainAgain}
             busy={busy}
             onSubmit={refine}
+            topicPlaceholder={t.topicPlaceholder}
+            explainPlaceholder={t.explainPlaceholder}
           />
         </div>
       )}
 
       {toolbar && !sheet && (
-        <SelectionToolbar x={toolbar.x} y={toolbar.y} flip={toolbar.flip} onComment={startComment} />
+        <SelectionToolbar x={toolbar.x} y={toolbar.y} flip={toolbar.flip} onComment={startComment} t={t} />
       )}
 
       {sheet && (
@@ -512,6 +522,7 @@ export default function App() {
           onClose={() => setSheet(null)}
           onSend={sheetSend}
           onAction={runAction}
+          t={t}
         />
       )}
     </div>

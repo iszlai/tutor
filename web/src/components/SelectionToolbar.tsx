@@ -6,16 +6,20 @@
 //     native callout (Copy / Look Up / Translate…) right over the selection,
 //     covering a floating pill — a docked bar stays clear of it.
 // Both act on the same already-captured selection anchor.
+import type { Strings } from "../i18n";
+
 export function SelectionToolbar({
   x,
   y,
   flip,
   onComment,
+  t,
 }: {
   x: number;
   y: number;
   flip: boolean;
   onComment: () => void;
+  t: Strings;
 }) {
   // Use mousedown/touchstart so the selection isn't cleared before we read it.
   const press = (e: React.SyntheticEvent) => {
@@ -30,11 +34,11 @@ export function SelectionToolbar({
         onMouseDown={press}
         onTouchStart={press}
       >
-        💬 Comment
+        {t.comment}
       </div>
       <div className="sel-bar" onMouseDown={press} onTouchStart={press}>
-        <span className="sel-bar-hint">Text selected</span>
-        <span className="sel-bar-btn">💬 Comment</span>
+        <span className="sel-bar-hint">{t.textSelected}</span>
+        <span className="sel-bar-btn">{t.comment}</span>
       </div>
     </>
   );
