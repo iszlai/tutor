@@ -27,6 +27,15 @@ export interface Strings {
   noMatches: string;
   noSessions: string;
   recent: string;
+  // Spaces
+  spaces: string;
+  allSpaces: string;
+  unfiled: string;
+  newSpace: string;
+  newSpacePrompt: string;
+  deleteSpaceTitle: string;
+  deleteSpaceConfirm: string;
+  moveTo: string;
   learn: string;
   teach: string;
   teachTitle: string;
@@ -83,6 +92,14 @@ const en: Strings = {
   noMatches: "No matches",
   noSessions: "No sessions yet",
   recent: "Recent",
+  spaces: "Spaces",
+  allSpaces: "All",
+  unfiled: "Unfiled",
+  newSpace: "+ New space",
+  newSpacePrompt: "Name your new space",
+  deleteSpaceTitle: "Delete this space",
+  deleteSpaceConfirm: "Delete this space? Its documents stay — they just become unfiled.",
+  moveTo: "Move to…",
   learn: "Learn",
   teach: "Teach (Feynman)",
   teachTitle: "Feynman technique: explain it yourself, find your gaps",
@@ -140,6 +157,14 @@ const hu: Strings = {
   noMatches: "Nincs találat",
   noSessions: "Még nincs munkamenet",
   recent: "Legutóbbi",
+  spaces: "Terek",
+  allSpaces: "Mind",
+  unfiled: "Besorolatlan",
+  newSpace: "+ Új tér",
+  newSpacePrompt: "Add meg az új tér nevét",
+  deleteSpaceTitle: "Tér törlése",
+  deleteSpaceConfirm: "Törlöd ezt a teret? A dokumentumok megmaradnak — csak besorolatlanok lesznek.",
+  moveTo: "Áthelyezés…",
   learn: "Tanulás",
   teach: "Taníts (Feynman)",
   teachTitle: "Feynman-technika: magyarázd el te magad, és találd meg a hiányosságokat",

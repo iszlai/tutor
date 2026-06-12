@@ -65,6 +65,7 @@ export interface TutorDoc {
   schemaVersion: string;
   id: string;
   title: string;
+  spaceId?: string; // "" = unfiled
   mode?: string; // "" (normal) | "feynman"
   rootQuestion: string;
   createdAt: string;
@@ -80,6 +81,15 @@ export interface DocSummary {
   id: string;
   title: string;
   updatedAt: string;
+  spaceId?: string;
+}
+
+// A space groups documents for organization. docCount is server-computed.
+export interface Space {
+  id: string;
+  name: string;
+  createdAt: string;
+  docCount: number;
 }
 
 export interface Annotation {

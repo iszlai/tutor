@@ -18,9 +18,14 @@ type API struct {
 func (a *API) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", a.health)
+	mux.HandleFunc("GET /api/spaces", a.listSpaces)
+	mux.HandleFunc("POST /api/spaces", a.createSpace)
+	mux.HandleFunc("PATCH /api/spaces/{id}", a.renameSpace)
+	mux.HandleFunc("DELETE /api/spaces/{id}", a.deleteSpace)
 	mux.HandleFunc("GET /api/documents", a.listDocs)
 	mux.HandleFunc("GET /api/search", a.search)
 	mux.HandleFunc("POST /api/documents", a.createDoc)
+	mux.HandleFunc("PATCH /api/documents/{id}/space", a.setDocSpace)
 	mux.HandleFunc("POST /api/documents/stream", a.createDocStream)
 	mux.HandleFunc("POST /api/feynman", a.createFeynman)
 	mux.HandleFunc("POST /api/documents/{id}/feynman", a.feynmanRound)
@@ -48,13 +53,79 @@ func (a *API) health(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-func (a *API) listDocs(w http.ResponseWriter, _ *http.Request) {
-	docs, err := a.store.List()
+func (a *API) listDocs(w http.ResponseWriter, r *http.Request) {
+	// ?space=<id> filters to one space; ?space=none returns only unfiled docs;
+	// absent/empty returns everything.
+	docs, err := a.store.List(r.URL.Query().Get("space"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, docs)
+}
+
+// ---- Spaces ----------------------------------------------------------------
+
+func (a *API) listSpaces(w http.ResponseWriter, _ *http.Request) {
+	spaces, err := a.store.ListSpaces()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, spaces)
+}
+
+func (a *API) createSpace(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Name string `json:"name"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	sp, err := a.store.CreateSpace(in.Name)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, sp)
+}
+
+func (a *API) renameSpace(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Name string `json:"name"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	sp, err := a.store.RenameSpace(r.PathValue("id"), in.Name)
+	if err != nil {
+		writeErr(w, statusFor(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, sp)
+}
+
+func (a *API) deleteSpace(w http.ResponseWriter, r *http.Request) {
+	if err := a.store.DeleteSpace(r.PathValue("id")); err != nil {
+		writeErr(w, statusFor(err), err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *API) setDocSpace(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		SpaceID string `json:"spaceId"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	doc, err := a.store.SetDocSpace(r.PathValue("id"), in.SpaceID)
+	if err != nil {
+		writeErr(w, statusFor(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, doc)
 }
 
 func (a *API) search(w http.ResponseWriter, r *http.Request) {
@@ -81,6 +152,7 @@ func (a *API) createDoc(w http.ResponseWriter, r *http.Request) {
 		Markdown string `json:"markdown"` // optional: import raw md instead of generating
 		Title    string `json:"title"`    // optional: override title when importing
 		Lang     string `json:"lang"`     // "en" | "hu": forces the response language
+		SpaceID  string `json:"spaceId"`  // optional: file the new doc in a space
 	}
 	if !decode(w, r, &in) {
 		return
@@ -119,6 +191,7 @@ func (a *API) createDoc(w http.ResponseWriter, r *http.Request) {
 		SchemaVersion: "1.0",
 		ID:            newID("doc"),
 		Title:         title,
+		SpaceID:       in.SpaceID,
 		RootQuestion:  in.Question,
 		CreatedAt:     nowISO(),
 		Provider:      Provider{Name: a.llm.Name(), Model: a.llm.Model()},
@@ -138,6 +211,7 @@ func (a *API) createDocStream(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Question string `json:"question"`
 		Lang     string `json:"lang"`
+		SpaceID  string `json:"spaceId"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -173,6 +247,7 @@ func (a *API) createDocStream(w http.ResponseWriter, r *http.Request) {
 		SchemaVersion: "1.0",
 		ID:            newID("doc"),
 		Title:         deriveTitle(in.Question),
+		SpaceID:       in.SpaceID,
 		RootQuestion:  in.Question,
 		CreatedAt:     nowISO(),
 		Provider:      Provider{Name: a.llm.Name(), Model: a.llm.Model()},

@@ -32,8 +32,9 @@ func clampSource(s string) string {
 
 func (a *API) explainStream(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Source string `json:"source"`
-		Lang   string `json:"lang"`
+		Source  string `json:"source"`
+		Lang    string `json:"lang"`
+		SpaceID string `json:"spaceId"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -67,7 +68,7 @@ func (a *API) explainStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	doc := explainDoc(a, md)
+	doc := explainDoc(a, md, in.SpaceID)
 	if err := a.store.Save(doc); err != nil {
 		fmt.Fprintf(w, "data: [ERROR] %s\n\n", err.Error())
 		flusher.Flush()
@@ -80,8 +81,9 @@ func (a *API) explainStream(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) explainSync(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Source string `json:"source"`
-		Lang   string `json:"lang"`
+		Source  string `json:"source"`
+		Lang    string `json:"lang"`
+		SpaceID string `json:"spaceId"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -100,7 +102,7 @@ func (a *API) explainSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	doc := explainDoc(a, md)
+	doc := explainDoc(a, md, in.SpaceID)
 	if err := a.store.Save(doc); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -110,7 +112,7 @@ func (a *API) explainSync(w http.ResponseWriter, r *http.Request) {
 
 // explainDoc builds the TutorDoc from generated markdown. RootQuestion is left
 // empty (the source is discarded); the title comes from the generated heading.
-func explainDoc(a *API, md string) *TutorDoc {
+func explainDoc(a *API, md, spaceID string) *TutorDoc {
 	title := titleFromMarkdown(md)
 	if title == "" {
 		title = "Untitled"
@@ -119,6 +121,7 @@ func explainDoc(a *API, md string) *TutorDoc {
 		SchemaVersion: "1.0",
 		ID:            newID("doc"),
 		Title:         title,
+		SpaceID:       spaceID,
 		CreatedAt:     nowISO(),
 		Provider:      Provider{Name: a.llm.Name(), Model: a.llm.Model()},
 		Blocks:        parseBlocks(md),

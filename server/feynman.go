@@ -30,6 +30,7 @@ func (a *API) createFeynman(w http.ResponseWriter, r *http.Request) {
 		Topic       string `json:"topic"`
 		Explanation string `json:"explanation"`
 		Lang        string `json:"lang"`
+		SpaceID     string `json:"spaceId"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -59,6 +60,7 @@ func (a *API) createFeynman(w http.ResponseWriter, r *http.Request) {
 		SchemaVersion: "1.0",
 		ID:            newID("doc"),
 		Title:         "Feynman: " + deriveTitle(in.Topic),
+		SpaceID:       in.SpaceID,
 		Mode:          "feynman",
 		RootQuestion:  in.Topic,
 		CreatedAt:     nowISO(),

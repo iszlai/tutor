@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { Anchor, DocSummary, SearchHit, TutorDoc } from "./types";
+import type { Anchor, DocSummary, SearchHit, Space, TutorDoc } from "./types";
 import { api } from "./api";
 import { type Lang, getStoredLang, storeLang, strings } from "./i18n";
 import { buildAnchor } from "./anchor";
@@ -21,6 +21,10 @@ type Toolbar = { anchor: Anchor; x: number; y: number; flip: boolean } | null;
 export default function App() {
   const [doc, setDoc] = useState<TutorDoc | null>(null);
   const [recents, setRecents] = useState<DocSummary[]>([]);
+  const [spaces, setSpaces] = useState<Space[]>([]);
+  // "" = all spaces, "none" = unfiled only, otherwise a space id. Doubles as the
+  // target for newly created docs (all/unfiled both file them as unfiled).
+  const [activeSpace, setActiveSpace] = useState<string>("");
   const [provider, setProvider] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -44,10 +48,25 @@ export default function App() {
     storeLang(lang);
   }, [lang]);
 
+  const refreshSpaces = useCallback(() => {
+    api.listSpaces().then(setSpaces).catch(() => {});
+  }, []);
+
+  const refreshRecents = useCallback(() => {
+    api.listDocs(activeSpace).then(setRecents).catch(() => {});
+  }, [activeSpace]);
+
+  // Keep the new-doc target + recents list in sync with the selected space.
+  // "all"/"unfiled" both file new docs as unfiled (spaceId "").
+  useEffect(() => {
+    api.setSpace(activeSpace === "none" ? "" : activeSpace);
+    refreshRecents();
+  }, [activeSpace, refreshRecents]);
+
   // --- initial load -------------------------------------------------------
   useEffect(() => {
     api.health().then((h) => setProvider(`${h.provider} · ${h.model}`)).catch(() => {});
-    api.listDocs().then(setRecents).catch(() => {});
+    refreshSpaces();
     const id = location.hash.slice(1);
     if (id) loadDoc(id);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -69,13 +88,59 @@ export default function App() {
     setSheet(null);
     setHistoryOpen(false);
     location.hash = "";
-    api.listDocs().then(setRecents).catch(() => {});
+    refreshRecents();
   }
 
   function toggleHistory() {
-    if (!historyOpen) api.listDocs().then(setRecents).catch(() => {});
+    if (!historyOpen) {
+      refreshRecents();
+      refreshSpaces();
+    }
     setHistoryOpen((o) => !o);
   }
+
+  // --- spaces -------------------------------------------------------------
+  async function createSpaceFlow() {
+    const name = prompt(t.newSpacePrompt)?.trim();
+    if (!name) return;
+    try {
+      const sp = await api.createSpace(name);
+      refreshSpaces();
+      setActiveSpace(sp.id); // jump to the new space (also refreshes recents)
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function deleteSpace(id: string) {
+    if (!confirm(t.deleteSpaceConfirm)) return;
+    try {
+      await api.deleteSpace(id);
+      if (activeSpace === id) setActiveSpace("");
+      refreshSpaces();
+      refreshRecents();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function moveDoc(id: string, spaceId: string) {
+    try {
+      await api.moveDoc(id, spaceId);
+      refreshRecents();
+      refreshSpaces();
+      if (doc?.id === id) setDoc((d) => (d ? { ...d, spaceId } : d));
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  const activeSpaceName =
+    activeSpace && activeSpace !== "none"
+      ? spaces.find((s) => s.id === activeSpace)?.name
+      : activeSpace === "none"
+        ? t.unfiled
+        : "";
 
   // Reset the search box whenever the dropdown closes (any path).
   useEffect(() => {
@@ -99,7 +164,7 @@ export default function App() {
     if (!confirm(t.deleteConfirm)) return;
     await api.deleteDoc(id);
     if (doc?.id === id) newSession();
-    api.listDocs().then(setRecents).catch(() => {});
+    refreshRecents();
   }
 
   // --- selection → floating toolbar --------------------------------------
@@ -164,7 +229,7 @@ export default function App() {
       location.hash = d.id;
       setImportOpen(false);
       setImportMd("");
-      api.listDocs().then(setRecents).catch(() => {});
+      refreshRecents();
     } catch (e) {
       setError(String(e));
     } finally {
@@ -182,7 +247,7 @@ export default function App() {
       });
       setStreamingDoc(null);
       await loadDoc(docId);
-      api.listDocs().then(setRecents).catch(() => {});
+      refreshRecents();
     } catch (e) {
       setError(String(e));
       setStreamingDoc(null);
@@ -202,7 +267,7 @@ export default function App() {
       });
       setStreamingDoc(null);
       await loadDoc(docId);
-      api.listDocs().then(setRecents).catch(() => {});
+      refreshRecents();
     } catch (e) {
       setError(String(e));
       setStreamingDoc(null);
@@ -222,7 +287,7 @@ export default function App() {
       });
       setStreamingDoc(null);
       await loadDoc(docId);
-      api.listDocs().then(setRecents).catch(() => {});
+      refreshRecents();
     } catch (e) {
       setError(String(e));
       setStreamingDoc(null);
@@ -295,7 +360,7 @@ export default function App() {
       location.hash = result.id;
       if (type === "createLinkedPage") {
         setSheet(null);
-        api.listDocs().then(setRecents).catch(() => {});
+        refreshRecents();
       }
     } catch (e) {
       setError(String(e));
@@ -358,6 +423,43 @@ export default function App() {
                   onChange={(e) => setQuery(e.target.value)}
                   autoFocus
                 />
+                {!query.trim() && (
+                  <div className="space-bar">
+                    <button
+                      className={`space-chip${activeSpace === "" ? " space-chip--active" : ""}`}
+                      onClick={() => setActiveSpace("")}
+                    >
+                      {t.allSpaces}
+                    </button>
+                    {spaces.map((sp) => (
+                      <span
+                        key={sp.id}
+                        className={`space-chip space-chip--wrap${activeSpace === sp.id ? " space-chip--active" : ""}`}
+                      >
+                        <button className="space-chip-label" onClick={() => setActiveSpace(sp.id)}>
+                          {sp.name}
+                          <span className="space-count">{sp.docCount}</span>
+                        </button>
+                        <button
+                          className="space-chip-x"
+                          title={t.deleteSpaceTitle}
+                          onClick={(e) => { e.stopPropagation(); deleteSpace(sp.id); }}
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    ))}
+                    <button
+                      className={`space-chip${activeSpace === "none" ? " space-chip--active" : ""}`}
+                      onClick={() => setActiveSpace("none")}
+                    >
+                      {t.unfiled}
+                    </button>
+                    <button className="space-chip space-chip--new" onClick={createSpaceFlow}>
+                      {t.newSpace}
+                    </button>
+                  </div>
+                )}
                 {query.trim() ? (
                   results.length === 0 ? (
                     <p className="history-empty">{t.noMatches}</p>
@@ -383,6 +485,18 @@ export default function App() {
                       <a className="history-item" onClick={() => loadDoc(r.id)}>
                         {r.title}
                       </a>
+                      <select
+                        className="space-move"
+                        title={t.moveTo}
+                        value={r.spaceId ?? ""}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => moveDoc(r.id, e.target.value)}
+                      >
+                        <option value="">{t.unfiled}</option>
+                        {spaces.map((sp) => (
+                          <option key={sp.id} value={sp.id}>{sp.name}</option>
+                        ))}
+                      </select>
                       <button
                         className="history-delete"
                         title="Delete"
@@ -492,7 +606,7 @@ export default function App() {
 
       {!doc && recents.length > 0 && (
         <div className="recents">
-          <h3>{t.recent}</h3>
+          <h3>{activeSpaceName ? `${t.recent} · ${activeSpaceName}` : t.recent}</h3>
           {recents.map((r) => (
             <a key={r.id} onClick={() => loadDoc(r.id)} href={`#${r.id}`}>
               {r.title}
