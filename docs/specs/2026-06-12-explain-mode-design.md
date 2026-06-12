@@ -52,9 +52,11 @@ Both:
    passing the source document as the user prompt.
 5. Parse the generated markdown into blocks using the existing markdown→blocks path
    (the same code Learn mode uses).
-6. Construct and persist a `TutorDoc` (see 2.4), then return it (streaming handler
-   terminates with the `[DONE] <doc-json>` SSE convention already used by
-   `/documents/stream`).
+6. Construct and persist a `TutorDoc` (see 2.4), then return it. The streaming
+   handler terminates with `[DONE] <doc-id>` — the document **ID** only — exactly as
+   `createDocStream` (server.go) and `createFeynman` (feynman.go) do today. The
+   frontend reads that ID and calls `loadDoc(docId)`. The sync handler returns the
+   `TutorDoc` JSON directly, following the shape of `createDoc`.
 
 ### 2.2 New prompt: `explainSystem` in `server/prompts.go`
 
@@ -90,21 +92,36 @@ Request body:
 - `lang` (string, optional): `"en"` or `"hu"`; falls back to the server's current
   language as other endpoints do.
 
-Response: a `TutorDoc` (streaming: tokens streamed, then `[DONE] <doc-json>`; sync:
+Response: a `TutorDoc` (streaming: tokens streamed, then `[DONE] <doc-id>`; sync:
 the JSON doc directly), identical in shape to what `/documents/stream` returns.
 
 Document construction:
 - `RootQuestion` is left **empty** — the source is discarded, not stored.
-- `Title` comes from the generated H2 heading (same extraction Learn docs use).
-- `Mode` is the normal (empty) mode — it is an ordinary document, so downstream
-  interactions behave exactly as for a Learn doc.
+- `Title` is derived from the generated document's opening heading via
+  `titleFromMarkdown`. **Note:** Learn docs derive their title from the *question*
+  (`deriveTitle(in.Question)`), which is unavailable here (`RootQuestion` is empty, so
+  `deriveTitle("")` → `"Untitled"`). Explain must instead extract the title from the
+  generated markdown, as the **Import** path does. Today `titleFromMarkdown`
+  (helpers.go) matches only a level-1 `# ` heading, but `docSystem`/`explainSystem`
+  instruct the model to open with a level-2 `##` heading — so `titleFromMarkdown` must
+  be extended to also match a `## ` heading (falling back to H1). This is a small,
+  safe change to a shared helper that also improves the Import path. If no heading is
+  found, the title falls back to `"Untitled"`.
+- `Mode` is the normal (empty) mode. This is load-bearing: `App.tsx` gates the
+  Feynman-only UI on `doc?.mode === "feynman"`, so an empty-mode doc automatically
+  receives the full Learn toolbar (comment, rewrite, etc.) with no extra work.
 - `Provider`, IDs, timestamps, and block IDs assigned the same way as Learn docs.
 
 ### 2.5 Input-size guard
 
-Before calling the model, truncate the source to a sane maximum length (consistent
-with how Feynman bounds `sessionText` — a fixed character cap). This prevents
-pathologically large pastes from being sent to the model. Truncation is silent and
+Before calling the model, truncate the source to a sane maximum length (a fixed
+character cap). Because Explain handles whole pasted documents — potentially much
+larger than a Feynman session — the cap should be more generous than Feynman's
+6000-char `sessionText` bound; use a dedicated constant (target ~20000 chars) rather
+than reusing `sessionText`'s value. This prevents pathologically large
+pastes from being sent to the model. Unlike `sessionText` — which keeps the **tail**
+because recent Feynman passes matter most — Explain keeps the **head** of the source
+(the beginning of a document is its most representative part). Truncation is silent and
 best-effort; the cap is a single constant defined in `explain.go`.
 
 ### 2.6 Error handling
@@ -163,10 +180,12 @@ arrives.
 
 A handler test for `POST /api/explain/stream` using the `mockLLM`, following existing
 server test patterns. Asserts:
-- A `TutorDoc` is created and returned.
+- A `TutorDoc` is created (the streaming handler emits `[DONE] <doc-id>`; the test
+  loads the doc by that ID).
 - The generated markdown is parsed into blocks.
 - `RootQuestion` is empty (source not persisted).
-- A title is derived from the generated heading.
+- The title is derived from the generated markdown's opening heading (covering the
+  `##` case, to guard the extended `titleFromMarkdown`).
 
 A test for empty `source` asserts the documented error response.
 
