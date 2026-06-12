@@ -4,10 +4,12 @@ export function PromptBox({
   onSubmit,
   busy,
   placeholder,
+  submitLabel,
 }: {
   onSubmit: (q: string) => void;
   busy: boolean;
   placeholder: string;
+  submitLabel: string;
 }) {
   const [value, setValue] = useState("");
 
@@ -29,7 +31,7 @@ export function PromptBox({
         autoFocus
       />
       <button className="btn btn-primary" onClick={submit} disabled={busy || !value.trim()}>
-        {busy ? <span className="spinner" /> : "Ask"}
+        {busy ? <span className="spinner" /> : submitLabel}
       </button>
     </div>
   );

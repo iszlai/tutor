@@ -1,8 +1,13 @@
 import type { Anchor, DocSummary, SearchHit, TutorDoc } from "./types";
+import type { Lang } from "./i18n";
 
 // In dev (Vite proxy) BASE is empty so /api/... works unchanged.
 // In a packaged Electron build VITE_API_BASE is set to http://localhost:PORT.
 const BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "";
+
+// Active UI language, sent with every generation request so the server can
+// force the AI's response language. App keeps this in sync via api.setLang.
+let lang: Lang = "en";
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}/api${path}`, {
@@ -52,6 +57,10 @@ async function streamSSE(
 }
 
 export const api = {
+  setLang: (l: Lang) => {
+    lang = l;
+  },
+
   health: () => req<{ provider: string; model: string }>("/health"),
 
   listDocs: () => req<DocSummary[]>("/documents"),
@@ -63,14 +72,14 @@ export const api = {
   createDoc: (question: string) =>
     req<TutorDoc>("/documents", {
       method: "POST",
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({ question, lang }),
     }),
 
   createDocStream: async (question: string, onToken: (t: string) => void): Promise<string> => {
     const res = await fetch(`${BASE}/api/documents/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({ question, lang }),
     });
     if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
     const reader = res.body.getReader();
@@ -105,13 +114,13 @@ export const api = {
   createThread: (docId: string, anchor: Anchor, message: string) =>
     req<TutorDoc>(`/documents/${docId}/threads`, {
       method: "POST",
-      body: JSON.stringify({ anchor, message }),
+      body: JSON.stringify({ anchor, message, lang }),
     }),
 
   reply: (docId: string, threadId: string, text: string) =>
     req<TutorDoc>(`/documents/${docId}/threads/${threadId}/messages`, {
       method: "POST",
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, lang }),
     }),
 
   replyStream: async (
@@ -123,7 +132,7 @@ export const api = {
     const res = await fetch(`${BASE}/api/documents/${docId}/threads/${threadId}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, lang }),
     });
     if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
     const reader = res.body.getReader();
@@ -148,20 +157,20 @@ export const api = {
 
   // Feynman mode: teach a concept, get a supportive gap report (streamed).
   createFeynmanStream: (topic: string, explanation: string, onToken: (t: string) => void) =>
-    streamSSE("/feynman", { topic, explanation }, onToken),
+    streamSSE("/feynman", { topic, explanation, lang }, onToken),
 
   feynmanRoundStream: async (
     docId: string,
     explanation: string,
     onToken: (t: string) => void
   ): Promise<TutorDoc> => {
-    await streamSSE(`/documents/${docId}/feynman`, { explanation }, onToken);
+    await streamSSE(`/documents/${docId}/feynman`, { explanation, lang }, onToken);
     return api.getDoc(docId);
   },
 
   action: (docId: string, threadId: string, type: string) =>
     req<TutorDoc>(`/documents/${docId}/threads/${threadId}/actions`, {
       method: "POST",
-      body: JSON.stringify({ type }),
+      body: JSON.stringify({ type, lang }),
     }),
 };
