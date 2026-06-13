@@ -1,4 +1,4 @@
-import type { Anchor, DocSummary, SearchHit, TutorDoc } from "./types";
+import type { Anchor, DocSummary, SearchHit, Space, TutorDoc } from "./types";
 import type { Lang } from "./i18n";
 
 // In dev (Vite proxy) BASE is empty so /api/... works unchanged.
@@ -8,6 +8,11 @@ const BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "";
 // Active UI language, sent with every generation request so the server can
 // force the AI's response language. App keeps this in sync via api.setLang.
 let lang: Lang = "en";
+
+// Space the user is currently filing new documents into ("" = unfiled). Sent
+// with every creation request so a new doc lands in the selected space. App
+// keeps this in sync via api.setSpace.
+let activeSpace = "";
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}/api${path}`, {
@@ -61,9 +66,32 @@ export const api = {
     lang = l;
   },
 
+  setSpace: (s: string) => {
+    activeSpace = s;
+  },
+
   health: () => req<{ provider: string; model: string }>("/health"),
 
-  listDocs: () => req<DocSummary[]>("/documents"),
+  // space: "" → all, "none" → unfiled only, otherwise that space's docs.
+  listDocs: (space = "") =>
+    req<DocSummary[]>(`/documents${space ? `?space=${encodeURIComponent(space)}` : ""}`),
+
+  // --- spaces ---
+  listSpaces: () => req<Space[]>("/spaces"),
+
+  createSpace: (name: string) =>
+    req<Space>("/spaces", { method: "POST", body: JSON.stringify({ name }) }),
+
+  renameSpace: (id: string, name: string) =>
+    req<Space>(`/spaces/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
+
+  deleteSpace: (id: string) => req<void>(`/spaces/${id}`, { method: "DELETE" }),
+
+  moveDoc: (id: string, spaceId: string) =>
+    req<TutorDoc>(`/documents/${id}/space`, {
+      method: "PATCH",
+      body: JSON.stringify({ spaceId }),
+    }),
 
   search: (q: string) => req<SearchHit[]>(`/search?q=${encodeURIComponent(q)}`),
 
@@ -72,14 +100,14 @@ export const api = {
   createDoc: (question: string) =>
     req<TutorDoc>("/documents", {
       method: "POST",
-      body: JSON.stringify({ question, lang }),
+      body: JSON.stringify({ question, lang, spaceId: activeSpace }),
     }),
 
   createDocStream: async (question: string, onToken: (t: string) => void): Promise<string> => {
     const res = await fetch(`${BASE}/api/documents/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, lang }),
+      body: JSON.stringify({ question, lang, spaceId: activeSpace }),
     });
     if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
     const reader = res.body.getReader();
@@ -105,18 +133,18 @@ export const api = {
   // Explain mode: paste a document, get a generated one-page explanation
   // (streamed). Returns the new doc id after [DONE], like createDocStream.
   explainStream: (source: string, onToken: (t: string) => void): Promise<string> =>
-    streamSSE("/explain/stream", { source, lang }, onToken),
+    streamSSE("/explain/stream", { source, lang, spaceId: activeSpace }, onToken),
 
   explain: (source: string) =>
     req<TutorDoc>("/explain", {
       method: "POST",
-      body: JSON.stringify({ source, lang }),
+      body: JSON.stringify({ source, lang, spaceId: activeSpace }),
     }),
 
   importDoc: (markdown: string, title?: string) =>
     req<TutorDoc>("/documents", {
       method: "POST",
-      body: JSON.stringify({ markdown, title: title ?? "" }),
+      body: JSON.stringify({ markdown, title: title ?? "", spaceId: activeSpace }),
     }),
 
   deleteDoc: (id: string) =>
@@ -168,7 +196,7 @@ export const api = {
 
   // Feynman mode: teach a concept, get a supportive gap report (streamed).
   createFeynmanStream: (topic: string, explanation: string, onToken: (t: string) => void) =>
-    streamSSE("/feynman", { topic, explanation, lang }, onToken),
+    streamSSE("/feynman", { topic, explanation, lang, spaceId: activeSpace }, onToken),
 
   feynmanRoundStream: async (
     docId: string,
