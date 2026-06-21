@@ -103,6 +103,28 @@
   .pop a.more { font-size:12px; font-weight:700; color:var(--accent-deep); cursor:pointer; }
 
   footer { text-align:center; color:var(--muted); font-size:12.5px; padding:0 0 30px; }
+
+  .geobar {
+    max-width:1320px; margin:0 auto; padding:0 18px;
+    display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+  }
+  .geobar .box {
+    width:100%; background:var(--card); border-radius:16px; box-shadow:var(--shadow);
+    padding:12px 16px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+  }
+  .geobar button {
+    border:none; cursor:pointer; font-weight:700; font-size:14px;
+    background:var(--accent); color:#fff; padding:9px 16px; border-radius:999px;
+    transition:transform .1s, background .2s;
+  }
+  .geobar button:hover { background:var(--accent-deep); transform:translateY(-1px); }
+  .geobar .status { font-size:13.5px; color:var(--muted); }
+  .geobar .status b { color:var(--accent-deep); }
+  .geobar .dot { width:9px; height:9px; border-radius:50%; background:#cbd6d3; display:inline-block; }
+  .geobar .dot.on { background:#3ec98a; }
+  .geobar .dot.load { background:#f2b84b; animation:pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity:.35; } }
+  .badge.live { background:#e4f8ee; color:#1c8a59; }
 </style>
 </head>
 <body>
@@ -111,6 +133,14 @@
     <h1>🐶 Kutyabarát SUP helyek Budapest környékén 🏄</h1>
     <p class="sub">Budapest közeli „go-to” spotoktól a távolabbi gyöngyszemekig (1,5–2 óra). Kattints egy gombostűre a térképen vagy egy sorra a táblázatban: megjelenik a kép, a SUP- és kutyabarát értékelés, az autóidő, az irány és a víz jellege.</p>
   </header>
+
+  <div class="geobar">
+    <div class="box">
+      <span class="dot" id="geoDot"></span>
+      <button id="geoBtn">📍 Helyzetem használata</button>
+      <span class="status" id="geoStatus">Engedélyezd a helymeghatározást, és az autóidőket, távolságokat és irányokat a saját helyzetedhez számoljuk ki (különben Budapest belvárosából becsüljük).</span>
+    </div>
+  </div>
 
   <div class="layout">
     <div id="map"></div>
@@ -149,7 +179,7 @@
   </div>
 
   <footer>
-    Készült ❤️-tel SUP-os kutyabarátoknak · Az autóidők becslések Budapest belvárosától · Térkép: OpenStreetMap
+    Készült ❤️-tel SUP-os kutyabarátoknak · Az autóidők a helyzetedből (vagy Budapest belvárosából) becsültek · Útvonal: OSRM · Térkép: OpenStreetMap
   </footer>
 
 <script
@@ -305,6 +335,37 @@ function imgUrl(p){
 function stars(n){ return '★★★★★'.slice(0, n) + '☆☆☆☆☆'.slice(0, 5-n); }
 function dogClass(p){ return p.dog>=4 ? '🐶 Kutyabarát' : (p.dog>=3 ? '🐶 Részben kutyabarát' : '🐶 Korlátozott'); }
 
+/* ---------- Dinamikus távolság / idő / irány ---------- */
+let userPos = null; // {lat,lng}
+
+function haversineKm(a, b){
+  const R = 6371, toRad = d => d*Math.PI/180;
+  const dLat = toRad(b.lat-a.lat), dLng = toRad(b.lng-a.lng);
+  const s = Math.sin(dLat/2)**2 + Math.cos(toRad(a.lat))*Math.cos(toRad(b.lat))*Math.sin(dLng/2)**2;
+  return R*2*Math.atan2(Math.sqrt(s), Math.sqrt(1-s));
+}
+function bearingHu(a, b){
+  const toRad = d => d*Math.PI/180;
+  const y = Math.sin(toRad(b.lng-a.lng))*Math.cos(toRad(b.lat));
+  const x = Math.cos(toRad(a.lat))*Math.sin(toRad(b.lat)) -
+            Math.sin(toRad(a.lat))*Math.cos(toRad(b.lat))*Math.cos(toRad(b.lng-a.lng));
+  const deg = (Math.atan2(y, x)*180/Math.PI + 360) % 360;
+  const dirs = ["É","ÉK","K","DK","D","DNy","Ny","ÉNy"];
+  return dirs[Math.round(deg/45) % 8];
+}
+function fmtMin(min){
+  if (min < 60) return Math.round(min) + " perc";
+  const h = Math.floor(min/60), m = Math.round(min%60);
+  return m ? `${h} óra ${m} perc` : `${h} óra`;
+}
+// Megjelenítendő autóidő: élő ha van helyzet, különben a táblázati becslés
+function driveText(p){
+  if (p.liveMin != null) return `${fmtMin(p.liveMin)}${p.liveKm!=null ? ` · ${Math.round(p.liveKm)} km` : ""}`;
+  return `${p.drive} (Budapestről)`;
+}
+function dirText(p){ return p.liveDir || `${p.dir} (Budapestről)`; }
+function isLive(p){ return p.liveMin != null; }
+
 /* ---------- Térkép ---------- */
 const map = L.map('map', { scrollWheelZoom: true }).setView([47.4, 19.2], 8);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -324,18 +385,23 @@ function pawIcon(color){
   });
 }
 
+function popupHtml(p, i){
+  return `
+    <div class="pop">
+      <img src="${imgUrl(p)}" onerror="this.onerror=null;this.src='${svgFor(p)}'" alt="${p.name}">
+      <h4>${p.name}</h4>
+      <div class="small">📍 ${p.town} · 🧭 ${dirText(p)}</div>
+      <div class="small">🚗 ${driveText(p)}</div>
+      <div class="small">🏄 SUP ${stars(p.sup)} · 🐶 ${p.dogLabel}</div>
+      <a class="more" onclick="selectPlace(${i})">Részletek →</a>
+    </div>`;
+}
+
 const markers = {}; const bounds = [];
 places.forEach((p, i) => {
   const m = L.marker([p.lat, p.lng], { icon: pawIcon(p.color) }).addTo(map);
   bounds.push([p.lat, p.lng]);
-  m.bindPopup(`
-    <div class="pop">
-      <img src="${imgUrl(p)}" onerror="this.onerror=null;this.src='${svgFor(p)}'" alt="${p.name}">
-      <h4>${p.name}</h4>
-      <div class="small">📍 ${p.town} · 🧭 ${p.dir} · 🚗 ${p.drive}</div>
-      <div class="small">🏄 SUP ${stars(p.sup)} · 🐶 ${p.dogLabel}</div>
-      <a class="more" onclick="selectPlace(${i})">Részletek →</a>
-    </div>`);
+  m.bindPopup(popupHtml(p, i));
   m.on('click', () => selectPlace(i, false));
   markers[i] = m;
 });
@@ -356,11 +422,11 @@ function selectPlace(i, openPopup = true){
   test.src = url;
 
   heroName.textContent = p.name;
-  heroLoc.textContent = `📍 ${p.town} · 🧭 ${p.dir}`;
+  heroLoc.textContent = `📍 ${p.town} · 🧭 ${dirText(p)}`;
 
   const facts = {
-    "Autóidő": `🚗 ${p.drive}`,
-    "Irány": `🧭 ${p.dir} Budapesttől`,
+    "Autóidő": `🚗 ${driveText(p)}`,
+    "Irány": `🧭 ${dirText(p)}`,
     "Víz jellege": p.water,
     "Kutyabarát": p.dogLabel,
     "SUP-élmény": `${stars(p.sup)} (${p.sup}/5)`
@@ -369,7 +435,8 @@ function selectPlace(i, openPopup = true){
 
   panelBody.innerHTML = `
     <div class="badges">
-      <span class="badge dist">🚗 ${p.drive}</span>
+      <span class="badge dist">🚗 ${driveText(p)}</span>
+      ${isLive(p) ? '<span class="badge live">📍 a helyzetedből</span>' : ''}
       <span class="badge">🏷️ ${p.water}</span>
       <span class="badge dog">${dogClass(p)}</span>
     </div>
@@ -390,19 +457,101 @@ function selectPlace(i, openPopup = true){
 }
 
 const tbody = document.getElementById('tableBody');
-places.forEach((p, i) => {
-  const tr = document.createElement('tr');
-  tr.dataset.i = i;
-  tr.innerHTML = `
+function rowHtml(p){
+  return `
     <td><b>${p.name}</b></td>
-    <td>${p.dir}</td>
-    <td>${p.drive}</td>
+    <td class="cDir">${dirText(p)}</td>
+    <td class="cDrive">${driveText(p)}</td>
     <td class="mini-stars">${stars(p.sup)}</td>
     <td>${p.dogLabel}</td>
     <td class="water">${p.water}</td>`;
+}
+places.forEach((p, i) => {
+  const tr = document.createElement('tr');
+  tr.dataset.i = i;
+  tr.innerHTML = rowHtml(p);
   tr.addEventListener('click', () => selectPlace(i));
   tbody.appendChild(tr);
 });
+
+/* ---------- Frissítés élő adatokkal ---------- */
+let currentSel = null;
+const _origSelect = selectPlace;
+selectPlace = function(i, openPopup){ currentSel = i; return _origSelect(i, openPopup); };
+
+function refreshDynamic(){
+  places.forEach((p, i) => {
+    markers[i].setPopupContent(popupHtml(p, i));
+    const tr = document.querySelector(`#tableBody tr[data-i="${i}"]`);
+    if (tr){
+      tr.querySelector('.cDir').textContent = dirText(p);
+      tr.querySelector('.cDrive').textContent = driveText(p);
+    }
+  });
+  // táblázat rendezése autóidő szerint, ha van élő adat
+  if (places.some(isLive)){
+    const order = places.map((p,i)=>i).sort((a,b)=>{
+      const ma = places[a].liveMin ?? 1e9, mb = places[b].liveMin ?? 1e9;
+      return ma - mb;
+    });
+    order.forEach(i => tbody.appendChild(document.querySelector(`#tableBody tr[data-i="${i}"]`)));
+  }
+  if (currentSel != null) _origSelect(currentSel, false);
+}
+
+/* ---------- Geolokáció + OSRM útvonal ---------- */
+const geoBtn = document.getElementById('geoBtn');
+const geoStatus = document.getElementById('geoStatus');
+const geoDot = document.getElementById('geoDot');
+
+function setStatus(html, dot){ geoStatus.innerHTML = html; geoDot.className = 'dot' + (dot ? ' ' + dot : ''); }
+
+async function computeFromUser(lat, lng){
+  userPos = { lat, lng };
+  // irány + légvonal azonnal
+  places.forEach(p => {
+    p.liveDir = bearingHu(userPos, p);
+    p.liveKm = haversineKm(userPos, p);
+    p.liveMin = (p.liveKm / 65) * 60 * 1.35; // becsült autóidő, amíg az útvonal megjön
+  });
+  refreshDynamic();
+  setStatus('Helyzet megvan – <b>útvonalak számítása…</b>', 'load');
+
+  // pontos autóidő az OSRM nyilvános szerveréről (egy kéréssel, table service)
+  try {
+    const coords = [[lng, lat], ...places.map(p => [p.lng, p.lat])]
+      .map(c => c.join(',')).join(';');
+    const url = `https://router.project-osrm.org/table/v1/driving/${coords}` +
+                `?sources=0&annotations=duration,distance`;
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('OSRM ' + r.status);
+    const data = await r.json();
+    const durs = data.durations[0], dists = data.distances ? data.distances[0] : null;
+    places.forEach((p, i) => {
+      const d = durs[i+1];
+      if (d != null) p.liveMin = d/60;
+      if (dists && dists[i+1] != null) p.liveKm = dists[i+1]/1000;
+    });
+    refreshDynamic();
+    setStatus('✅ Az autóidők és irányok a <b>saját helyzetedhez</b> igazítva (közúti útvonal alapján).', 'on');
+  } catch (e) {
+    refreshDynamic();
+    setStatus('📍 Helyzet megvan. Az útvonal-szolgáltatás nem elérhető, ezért az autóidők <b>légvonalból becsültek</b>.', 'on');
+  }
+}
+
+function requestGeo(){
+  if (!navigator.geolocation){ setStatus('A böngésződ nem támogatja a helymeghatározást.', ''); return; }
+  setStatus('Helymeghatározás…', 'load');
+  navigator.geolocation.getCurrentPosition(
+    pos => computeFromUser(pos.coords.latitude, pos.coords.longitude),
+    err => setStatus('Nem sikerült a helymeghatározás – az autóidőket Budapest belvárosából becsüljük. (' + err.message + ')', ''),
+    { enableHighAccuracy:true, timeout:10000, maximumAge:60000 }
+  );
+}
+geoBtn.addEventListener('click', requestGeo);
+// automatikus próbálkozás betöltéskor (a böngésző kér engedélyt)
+requestGeo();
 </script>
 </body>
 </html>
